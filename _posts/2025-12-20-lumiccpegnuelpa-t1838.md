@@ -10,153 +10,13 @@ published: true
 
 # LUMI-C-cpeGNU-elpa
 
-> This version of ABINIT is compiled to support scalapack + elpa (without openmp).
+> **WIP: waiting for LUMI come back 🙏**
+
+> This version of ABINIT (b71bbc9) is compiled to support scalapack + elpa + openmp at LUMI-C/25.04 .
 
 # 1. patch for LUMI compilation
 
-First need a patch for being compatible with the cray-gnu compiler.
-
-```patch
-diff --git a/src/61_occeig/m_fstab.F90 b/src/61_occeig/m_fstab.F90
-index 85cf9ee5ac..be45b534bf 100644
---- a/src/61_occeig/m_fstab.F90
-+++ b/src/61_occeig/m_fstab.F90
-@@ -191,7 +191,7 @@ contains  !============================================================
- subroutine fstab_free(fstab)
- 
- !Arguments ------------------------------------
-- class(fstab_t),intent(inout) :: fstab
-+ class(fstab_t),intent(inout),target :: fstab
- ! ************************************************************************
- 
-  ! integer
-@@ -253,7 +253,7 @@ subroutine fstab_init(fstab, ebands, cryst, dtset, tetra, comm)
-  type(htetra_t),intent(out) :: tetra
-  integer,intent(in) :: comm
- !arrays
-- type(fstab_t),target,intent(out) :: fstab(ebands%nsppol)
-+ class(fstab_t),target,intent(out) :: fstab(ebands%nsppol)
- 
- !Local variables-------------------------------
- !scalars
-@@ -265,7 +265,7 @@ subroutine fstab_init(fstab, ebands, cryst, dtset, tetra, comm)
-  logical :: in_win
-  character(len=80) :: errstr
-  character(len=5000) :: msg
-- type(fstab_t),pointer :: fs
-+ class(fstab_t),pointer :: fs
-  type(krank_t) :: krank
- !arrays
-  integer :: kptrlatt(3,3)
-@@ -534,7 +534,7 @@ integer function fstab_findkg0(fstab, kpt, g0) result(ik_fs)
- 
- !Arguments ------------------------------------
- !scalars
-- class(fstab_t),intent(in) :: fstab
-+ class(fstab_t),intent(in),target :: fstab
- !arrays
-  integer,intent(out) :: g0(3)
-  real(dp),intent(in) :: kpt(3)
-diff --git a/src/78_eph/m_phgamma.F90 b/src/78_eph/m_phgamma.F90
-index 5b912ec1c7..22b18cb8eb 100644
---- a/src/78_eph/m_phgamma.F90
-+++ b/src/78_eph/m_phgamma.F90
-@@ -544,7 +544,7 @@ subroutine phgamma_init(gams, cryst, ifc, ebands, fstab, dtset, eph_scalprod, ng
-  type(crystal_t),intent(in) :: cryst
-  type(ifc_type),intent(in) :: ifc
-  type(ebands_t),intent(in) :: ebands
-- type(fstab_t), intent(in) :: fstab
-+ class(fstab_t), intent(in) :: fstab
-  type(dataset_type),intent(in) :: dtset
- !arrays
-  integer,intent(in) :: ngqpt(3)
-@@ -3040,7 +3040,7 @@ subroutine eph_phgamma(wfk0_path, dtfil, ngfft, ngfftf, dtset, cryst, ebands, dv
-  real(dp) :: edos_step, edos_broad, sigma, ecut, eshift, eig0nk
-  logical :: gen_eigenpb, need_velocities, isirr_k, isirr_kq, print_time_k, need_ftinterp
-  type(wfd_t) :: wfd
-- type(fstab_t),pointer :: fs
-+ class(fstab_t),pointer :: fs
-  type(gs_hamiltonian_type) :: gs_hamkq
-  type(rf_hamiltonian_type) :: rf_hamkq
-  type(edos_t) :: edos
-@@ -3071,7 +3071,7 @@ subroutine eph_phgamma(wfk0_path, dtfil, ngfft, ngfftf, dtset, cryst, ebands, dv
-  real(dp),allocatable :: wt_ek(:,:), wt_ekq(:,:), dbldelta_wts(:,:)
-  real(dp),allocatable :: tgamvv_in(:,:,:,:),  vv_kk(:,:,:), tgamvv_out(:,:,:,:), vv_kkq(:,:,:), tmp_vals_ee(:,:,:,:,:), emesh(:)
-  logical,allocatable :: bks_mask(:,:,:),keep_ur(:,:,:)
-- type(fstab_t),target,allocatable :: fstab(:)
-+ class(fstab_t),target,allocatable :: fstab(:)
-  type(pawcprj_type),allocatable  :: cwaveprj0(:,:)
- #ifdef HAVE_MPI
-  integer :: ndims, comm_cart, me_cart, coords(5)
-@@ -3118,7 +3118,7 @@ subroutine eph_phgamma(wfk0_path, dtfil, ngfft, ngfftf, dtset, cryst, ebands, dv
- 
-  ! Find Fermi surface k-points
-  ! TODO: support kptopt, change setup of k-points if tetra: fist tetra weights then k-points on the Fermi surface!
-- ABI_MALLOC(fstab, (nsppol))
-+ allocate(fstab(nsppol))
-  call fstab_init(fstab, ebands, cryst, dtset, tetra, comm)
-  call tetra%free()
- 
-@@ -4077,9 +4077,10 @@ subroutine eph_phgamma(wfk0_path, dtfil, ngfft, ngfftf, dtset, cryst, ebands, dv
-  ABI_SFREE(tgamvv_out)
-  call ddkop%free(); call gs_hamkq%free(); call wfd%free()
-  do spin=1,ebands%nsppol
--   call fstab(spin)%free()
-+   fs => fstab(spin)
-+   call fs%free()
-  end do
-- ABI_FREE(fstab)
-+ deallocate(fstab)
-  call pawcprj_free(cwaveprj0)
-  ABI_FREE(cwaveprj0)
- 
-@@ -4185,7 +4186,7 @@ subroutine phgamma_setup_qpoint(gams, fs, cryst, ebands, spin, ltetra, qpt, nest
- 
- !Arguments ------------------------------------
-  class(phgamma_t),intent(inout) :: gams
-- type(fstab_t),intent(inout) :: fs
-+ class(fstab_t),intent(inout),target :: fs
-  type(crystal_t),intent(in) :: cryst
-  type(ebands_t),intent(in) :: ebands
-  integer,intent(in) :: spin, ltetra, comm
-diff --git a/src/78_eph/m_wkk.F90 b/src/78_eph/m_wkk.F90
-index 8eb4bff660..096c52d0e3 100644
---- a/src/78_eph/m_wkk.F90
-+++ b/src/78_eph/m_wkk.F90
-@@ -161,7 +161,8 @@ subroutine wkk_run(wfk0_path, dtfil, ngfft, ngfftf, dtset, cryst, ebands, wfk_hd
-  complex(gwp),allocatable :: vc_sqrt_gx(:), ur_nkp(:,:), ur_mk(:,:), kxcg(:,:), mu_mn(:,:)
-  complex(dp),allocatable :: w_ee(:,:) ! w_kkp(:,:,:,:)
-  logical,allocatable :: bks_mask(:,:,:), keep_ur(:,:,:)
-- type(fstab_t),target,allocatable :: fstab(:)
-+ class(fstab_t),target,allocatable :: fstab(:)
-+ class(fstab_t), pointer :: fs
- !************************************************************************
- 
-  ABI_CHECK(psps%usepaw == 0, "PAW not implemented")
-@@ -191,7 +192,7 @@ subroutine wkk_run(wfk0_path, dtfil, ngfft, ngfftf, dtset, cryst, ebands, wfk_hd
- 
-  ! Find Fermi surface k-points.
-  ! TODO: support kptopt, change setup of k-points if tetra: fist tetra weights then k-points on the Fermi surface!
-- ABI_MALLOC(fstab, (nsppol))
-+ allocate(fstab(nsppol))
-  call fstab_init(fstab, ebands, cryst, dtset, tetra, comm)
-  call tetra%free()
- 
-@@ -681,9 +682,10 @@ subroutine wkk_run(wfk0_path, dtfil, ngfft, ngfftf, dtset, cryst, ebands, wfk_hd
-  call epsm1%free()
- 
-  do spin=1,ebands%nsppol
--   call fstab(spin)%free()
-+   fs => fstab(spin)
-+   call fs%free()
-  end do
-- ABI_FREE(fstab)
-+ deallocate(fstab)
- 
-  call xmpi_barrier(comm) ! This to make sure that the parallel output of WKK is completed
-  call cwtime_report(" wkk_run: MPI barrier before returning.", cpu_all, wall_all, gflops_all, end_str=ch10, comm=comm)
-
-```
+Good news: After [update](https://lumi-supercomputer.github.io/LUMI-training-materials/User-Updates/Update-202601/), seems we don't need patch anymore.
 
 # 2. easybuild dependencies
 
@@ -335,7 +195,7 @@ modextravars = {
 moduleclass = 'math'
 ```
 
-Remember to `module purge`​ environment first. Then use `eb /path/to/config -r` to compile these.
+Remember to `module purge`​ environment first. Then load easybuild environment with `module load LUMI/25.03 && module load partition/C && module load EasyBuild-user`​. Then use `eb /path/to/config -r` to compile these.
 
 After compilation of dependencies, the modulefiles should be auto generated at `~/EasyBuild/modules/LUMI/24.03/partition/C/`.
 
@@ -398,7 +258,7 @@ make -j 16 install
 # 5. test
 
 ```bash
-salloc -N 1 -c 128 --account=project_465002489 -t 00:30:00 -p debug
+salloc -N 1 -c 128 --account=<your_project_number> -t 00:30:00 -p debug
 ../tests/runtests.py -n 1 -j 128 --use-srun --mpi-args="--cpus-per-task=1" -t 900
 ```
 
