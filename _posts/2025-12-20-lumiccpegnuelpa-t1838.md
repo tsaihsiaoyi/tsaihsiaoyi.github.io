@@ -10,8 +10,6 @@ published: true
 
 # LUMI-C-cpeGNU-elpa
 
-> **WIP: Waiting for the return of LUMI cluster 🙏**
-
 > This version of ABINIT (b71bbc9) is compiled to support scalapack + elpa + openmp at LUMI-C/25.04 .
 
 # 1. patch for LUMI compilation
