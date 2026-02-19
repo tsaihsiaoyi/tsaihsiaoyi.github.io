@@ -202,13 +202,15 @@ After compilation of dependencies, the modulefiles should be auto generated at `
 
 # 3. configure
 
+After compiling those dependencies, modules can be loaded as follow:
+
+```bash
+module purge && module load LUMI/25.03 && module load partition/C && module load ELPA/2025.06.001-cpeGNU-25.03-CPU libxc/7.0.0-cpeGNU-25.03-KXC cray-python/3.11.7 cray-fftw/3.3.10.10 cray-hdf5-parallel/1.14.3.5 cray-netcdf-hdf5parallel/4.9.0.17
+```
+
+You can check modules by running command `ml`​ or `module list`, results should be like:
+
 ```plaintext
-┌─() [tsaihsia@uan03] - [/pfs/lustrep2/users/tsaihsia/program/abinit.worktrees/gwr/build] - [2025-12-19 13:50:17]
-└─[130] $ module purge && module load LUMI/25.03 && module load partition/C && module load ELPA/2025.06.001-cpeGNU-25.03-CPU libxc/7.0.0-cpeGNU-25.03-KXC cray-python/3.11.7 cray-fftw/3.3.10.10 cray-hdf5-parallel/1.14.3.5 cray-netcdf-hdf5parallel/4.9.0.17
-
-┌─() [tsaihsia@uan03] - [/pfs/lustrep2/users/tsaihsia/program/abinit.worktrees/gwr/build] - [2025-12-19 13:50:25]
-└─[0] $ ml
-
 Currently Loaded Modules:
   1) ModuleLabel/label              (S)  13) cray-dsmml/0.3.1
   2) lumi-tools/24.05               (S)  14) cray-mpich/8.1.32
@@ -217,12 +219,14 @@ Currently Loaded Modules:
   5) craype-x86-milan                    17) perftools-base/25.03.0
   6) craype-accel-host                   18) cpeGNU/25.03
   7) libfabric/1.22.0                    19) ELPA/2025.06.001-cpeGNU-25.03-CPU
-  8) craype-network-ofi                  20) libxc/7.0.0-cpeGNU-25.03
+  8) craype-network-ofi                  20) libxc/7.0.0-cpeGNU-25.03-KXC
   9) xpmem/2.11.5-1.3_g73ade43320bc      21) cray-python/3.11.7
  10) partition/C                    (S)  22) cray-fftw/3.3.10.10
  11) gcc-native/14.2                     23) cray-hdf5-parallel/1.14.3.5
  12) craype/2.7.34                       24) cray-netcdf-hdf5parallel/4.9.0.17
 ```
+
+Now let's configure. Like compiling any other software, make a new directory e.g. `mkdir build`, and run command below in this directory.
 
 ```bash
 CC=cc CXX=CC FC=ftn FCLIBS=" " LINALG_LIBS="-lsci_gnu -lsci_gnu_mpi" ../configure --prefix=`pwd` --with-mpi=yes --enable-mpi-io=yes --enable-openmp=yes --with-linalg-flavor=netlib+elpa --with-fft-flavor=fftw3 --with-elpa=${EBROOTELPA} --with-libxc=${EBROOTLIBXC} --enable-memory-profiling --enable-mpi-inplace=yes --with-optim-flavor=standard --enable-gw-dpc=yes
