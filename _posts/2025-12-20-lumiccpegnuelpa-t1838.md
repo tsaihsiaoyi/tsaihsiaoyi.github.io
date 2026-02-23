@@ -1,6 +1,6 @@
 ---
 title: LUMI-C-cpeGNU-elpa
-date: '2026-02-23 18:09:41'
+date: '2025-12-19 19:42:45'
 permalink: /post/lumiccpegnuelpa-t1838.html
 layout: post
 published: true
