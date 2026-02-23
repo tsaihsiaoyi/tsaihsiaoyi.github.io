@@ -1,6 +1,6 @@
 ---
 title: LUMI-C-cpeGNU-elpa
-date: '2025-12-19 12:42:45'
+date: '2026-02-23 19:12:25'
 permalink: /post/lumiccpegnuelpa-t1838.html
 layout: post
 published: true
@@ -229,7 +229,7 @@ Currently Loaded Modules:
 Now let's configure. Like compiling any other software, make a new directory e.g. `mkdir build`, and run command below in this directory.
 
 ```bash
-CC=cc CXX=CC FC=ftn FCLIBS=" " LINALG_LIBS="-lsci_gnu -lsci_gnu_mpi" ../configure --prefix=`pwd` --with-mpi=yes --enable-mpi-io=yes --enable-openmp=yes --with-linalg-flavor=netlib+elpa --with-fft-flavor=fftw3 --with-elpa=${EBROOTELPA} --with-libxc=${EBROOTLIBXC} --enable-memory-profiling --enable-mpi-inplace=yes --with-optim-flavor=standard --enable-gw-dpc=yes
+CC=cc CXX=CC FC=ftn FCLIBS=" " LINALG_LIBS="-lsci_gnu -lsci_gnu_mpi" FFTW3_LIBS="-L${FFTW_ROOT}/lib -lfftw3 -lfftw3f" ../configure --prefix=`pwd` --with-mpi=yes --enable-mpi-io=yes --enable-openmp=yes --with-linalg-flavor=netlib+elpa --with-fft-flavor=fftw3 --with-elpa=${EBROOTELPA} --with-libxc=${EBROOTLIBXC} --enable-memory-profiling --enable-mpi-inplace=yes --with-optim-flavor=standard --enable-gw-dpc=yes
 ```
 
 Then comment the `HAVE_FFTW3_THREADS`​ in `config.h`.
