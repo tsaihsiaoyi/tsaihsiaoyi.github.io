@@ -359,6 +359,6 @@ vdwxc                 0       0          0        1         0       0.00       0
 wannier90             0       0          0       10         0       0.00       0.01
 ```
 
-![image](/assets/image-20260223131711-ayxlxoj.png)
+![image](/assets/images/image-20260223132737-0xjwfnk.png)
 
 ‍
