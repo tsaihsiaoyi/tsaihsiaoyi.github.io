@@ -10,7 +10,7 @@ published: true
 
 # LUMI-C-cpeGNU-elpa
 
-> This version of ABINIT (b71bbc9) is compiled to support scalapack + elpa + openmp at LUMI-C/25.04 .
+> This version of ABINIT (b71bbc9) is compiled to support scalapack + elpa + openmp at LUMI-C/25.03.
 
 # 1. patch for LUMI compilation
 
@@ -313,7 +313,7 @@ wannier90             0       0          0       10         0       0.00       0
 All failed tests are due to known memory leakage.
 
 ```bash
-../tests/runtests.py -n 4 -j 32 --use-srun --mpi-args="--cpus-per-task=1" -t 900
+../tests/runtests.py -n 4 -j 32 -k FAILS_IFMPI- --use-srun --mpi-args="--cpus-per-task=1" -t 900
 ```
 
 ```plaintext
