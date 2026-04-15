@@ -232,27 +232,11 @@ Now let's configure. Like compiling any other software, make a new directory e.g
 CC=cc CXX=CC FC=ftn FCLIBS=" " LINALG_LIBS="-lsci_gnu -lsci_gnu_mpi" FFTW3_LIBS="-L${FFTW_ROOT}/lib -lfftw3 -lfftw3f" ../configure --prefix=`pwd` --with-mpi=yes --enable-mpi-io=yes --enable-openmp=yes --with-linalg-flavor=netlib+elpa --with-fft-flavor=fftw3 --with-elpa=${EBROOTELPA} --with-libxc=${EBROOTLIBXC} --enable-memory-profiling --enable-mpi-inplace=yes --with-optim-flavor=standard --enable-gw-dpc=yes
 ```
 
-Then comment the `HAVE_FFTW3_THREADS`​ in `config.h`.
+After ABINIT 10.6.5, this is no more needed:
 
-This is because building system will automaticly define `HAVE_FFTW3_THREADS`​ when `-lfftw3_threads` working even flavor is fftw3 but not fftw3-threads.
+~~Then comment the~~ ~~​`HAVE_FFTW3_THREADS`​~~​ ~~in~~ ~~​`config.h`​~~​ ~~.~~
 
-In principle one should modify config:
-
-```patch
-diff --git a/config/m4/sd_math_fft.m4 b/config/m4/sd_math_fft.m4
-index 598bdbfdac..28e76204a3 100644
---- a/config/m4/sd_math_fft.m4
-+++ b/config/m4/sd_math_fft.m4
-@@ -120,7 +120,7 @@ AC_DEFUN([SD_FFT_DETECT], [
-             AC_DEFINE([HAVE_FFTW3_MPI], 1,
-               [Define to 1 if you have a MPI-enabled FFTW3 library.])
-           fi
--          if test "${sd_fftw3_threads_ok}" = "yes" ; then
-+          if test "${sd_fft_flavor}" = "fftw3-threads" -a "${sd_fftw3_threads_ok}" = "yes" ; then
-             AC_DEFINE([HAVE_FFTW3_THREADS], 1,
-               [Define to 1 if you have a threads-enabled FFTW3 library.])
-           fi
-```
+~~This is because building system will automaticly define~~ ~~​`HAVE_FFTW3_THREADS`​~~​ ~~when~~  ~~​`-lfftw3_threads`​~~​ ~~working even flavor is fftw3 but not fftw3-threads.~~
 
 # 4. make
 
