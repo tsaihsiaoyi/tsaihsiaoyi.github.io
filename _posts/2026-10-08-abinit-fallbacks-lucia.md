@@ -378,7 +378,6 @@ src/98_main/abinit -b      # check the CPP options
 
 # 8. Open points
 
-- **Publication.** The branches `cray_autodetect` (ABINIT) and `bigdft_xc_fix` (abinit-fallbacks) are local, not pushed yet.
 - **eb_foss** still needs `--with-linalg-flavor=easybuild+elpa`. ABINIT's own detection could look for BLACS inside `libscalapack`, as the fallbacks do.
 - **`FCFLAGS_HINTS`** still cannot override the vendor hints (the order problem of section 4.2).
 - **Upstream reports.**
