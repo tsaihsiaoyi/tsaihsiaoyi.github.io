@@ -10,7 +10,7 @@ published: true
 
 # ABINIT + abinit-fallbacks on Lucia (six toolchains)
 
-> **Status, 2026-10-08.** ABINIT builds on all six toolchains of Lucia, against external libraries built from source with abinit-fallbacks. That includes BigDFT, AOCC, and every build check. With the changes of section 5, the four Cray toolchains need **no configure argument** besides the library paths. The test suite was not part of this work.
+> **Status, 2026-10-08.** ABINIT builds on all six toolchains of Lucia, against external libraries built from source with abinit-fallbacks. That includes BigDFT, AOCC, and every build check. With the changes of section 5, the four Cray toolchains need **no configure argument** besides the library paths. On Cray, ABINIT now also uses FFTW3 from the `cray-fftw` module, still without any extra argument (section 5.5). The test suite was not part of this work.
 
 Versions:
 
@@ -31,7 +31,7 @@ For each of the six compiler toolchains available on Lucia:
 
 The rules were the same for both steps:
 
-- Only the **compiler, MPI and math library** come from cluster modules. HDF5, netCDF, LibXC, ELPA, Wannier90, BigDFT, … all come from the fallbacks, never from `cray-hdf5`, `cray-netcdf` or EasyBuild modules.
+- Only the **compiler, MPI and math library** come from cluster modules. HDF5, netCDF, LibXC, ELPA, Wannier90, BigDFT, … all come from the fallbacks, never from `cray-hdf5`, `cray-netcdf` or EasyBuild modules. The one later addition is `cray-fftw`, which ABINIT uses on the Cray toolchains. None of the fallbacks uses FFTW.
 - Everything runs in a **clean environment**: `env -i`, then `source /etc/profile` (only for the `module` command), then the module lines of the toolchain. My `~/.bashrc` activates a conda environment, and two hidden dependencies came from it before I switched to `env -i`:
   - netCDF-C picked up conda's `xml2-config`;
   - BigDFT needed conda's `python`.
@@ -42,10 +42,10 @@ The rules were the same for both steps:
 
 | Name | Modules | Compilers | MPI | Math library |
 |---|---|---|---|---|
-| `cray_cray` | `Cray/24.07` `PrgEnv-cray/8.4.0` | CCE 18.0.0 | Cray MPICH 8.1.30 | Cray LibSci 24.07 |
-| `cray_gnu` | `Cray/24.07` `PrgEnv-gnu/8.4.0` | GCC 13.3 | Cray MPICH 8.1.30 | Cray LibSci 24.07 |
-| `cray_intel` | `Cray/24.07` `PrgEnv-intel/8.4.0` | icx 2022.2 + ifort 2021.7 | Cray MPICH 8.1.30 | Cray LibSci 24.07 |
-| `cray_aocc` | `Cray/24.07` `PrgEnv-aocc/8.4.0` | AOCC 4.1 (clang 16 + classic flang) | Cray MPICH 8.1.30 | Cray LibSci 24.07 |
+| `cray_cray` | `Cray/24.07` `PrgEnv-cray/8.4.0` | CCE 18.0.0 | Cray MPICH 8.1.30 | Cray LibSci 24.07, cray-fftw 3.3.10.8 |
+| `cray_gnu` | `Cray/24.07` `PrgEnv-gnu/8.4.0` | GCC 13.3 | Cray MPICH 8.1.30 | Cray LibSci 24.07, cray-fftw 3.3.10.8 |
+| `cray_intel` | `Cray/24.07` `PrgEnv-intel/8.4.0` | icx 2022.2 + ifort 2021.7 | Cray MPICH 8.1.30 | Cray LibSci 24.07, cray-fftw 3.3.10.8 |
+| `cray_aocc` | `Cray/24.07` `PrgEnv-aocc/8.4.0` | AOCC 4.1 (clang 16 + classic flang) | Cray MPICH 8.1.30 | Cray LibSci 24.07, cray-fftw 3.3.10.8 |
 | `eb_intel` | `EasyBuild/2025a` `intel/2025a` | icx/ifx 2025.1 | Intel MPI 2021.15 | MKL 2025.1 |
 | `eb_foss` | `EasyBuild/2025a` `foss/2025a` | GCC 14.2 | OpenMPI 5.0.7 | FlexiBLAS 3.4.5 / OpenBLAS 0.3.29, ScaLAPACK 2.2.2 |
 
@@ -55,7 +55,10 @@ Each build directory has an `env.sh` with exactly these lines, for example:
 module --force purge          # also unloads the sticky Cray/ and EasyBuild/ modules
 module load Cray/24.07
 module load PrgEnv-gnu/8.4.0
+module load cray-fftw/3.3.10.8   # ABINIT build directories of the Cray toolchains only
 ```
+
+`cray-fftw/3.3.10.8` is the only version installed. Because `craype-x86-milan` is loaded, the module selects the Milan build of FFTW.
 
 # 3. Step 1: abinit-fallbacks
 
@@ -278,7 +281,7 @@ All six toolchains use the library paths of section 4.1, plus `--with-bigdft=$FB
 
 | Toolchain | Extra arguments |
 |---|---|
-| `cray_cray`, `cray_gnu`, `cray_intel`, `cray_aocc` | **none** |
+| `cray_cray`, `cray_gnu`, `cray_intel`, `cray_aocc` | **none** (FFTW3 included, see 5.5) |
 | `eb_intel` | none |
 | `eb_foss` | `--with-linalg-flavor=easybuild+elpa` (as before) |
 
@@ -296,6 +299,11 @@ Every build ends with a `check.sh` that verifies:
 5. Every `-I`/`-L` of HDF5, netCDF, LibXC, ELPA, Wannier90, XMLF90, libPSML and BigDFT points into `$FB`, and none of them (nor `libyaml`) appears as a shared library in `ldd abinit`.
 6. `abinit -b` lists `HAVE_MPI HAVE_MPI_IO HAVE_HDF5_MPI HAVE_NETCDF_MPI HAVE_NETCDF_FORTRAN_MPI HAVE_LIBXC HAVE_LINALG_SCALAPACK HAVE_LINALG_ELPA HAVE_WANNIER90 HAVE_LIBPSML HAVE_XMLF90 HAVE_BIGDFT`.
 7. `make` exits with 0.
+8. On Cray only, FFTW comes from the `cray-fftw` module:
+   - the FFT flavor is `fftw3`;
+   - the FFTW3 flags point to `$FFTW_ROOT`;
+   - `abinit -b` lists `HAVE_FFTW3`;
+   - `ldd abinit` resolves `libfftw3*` to a `cray-fftw` file.
 
 ## 5.4 Results
 
@@ -303,16 +311,39 @@ All six builds pass every check (`RESULT: OK`). They used `make -j 64` on one de
 
 | Toolchain | Linear algebra (configure / `ldd`) | FFT | `make` |
 |---|---|---|---|
-| `cray_cray` | `elpa+libsci` / `libsci_cray(_mpi).so.6` | Goedecker | 32.6 min |
-| `cray_gnu` | `elpa+libsci` / `libsci_gnu(_mpi).so.6` | Goedecker | 8.3 min |
-| `cray_intel` | `elpa+libsci` / `libsci_intel(_mpi).so.6` (no MKL) | Goedecker | 20.3 min |
-| `cray_aocc` | `elpa+libsci` / `libsci_aocc(_mpi).so.6` | Goedecker | 26.1 min |
+| `cray_cray` | `elpa+libsci` / `libsci_cray(_mpi).so.6` | FFTW3 (cray-fftw 3.3.10.8, + FFTW3-MPI) | 32.5 min |
+| `cray_gnu` | `elpa+libsci` / `libsci_gnu(_mpi).so.6` | FFTW3 (cray-fftw 3.3.10.8, + FFTW3-MPI) | 8.3 min |
+| `cray_intel` | `elpa+libsci` / `libsci_intel(_mpi).so.6` (no MKL) | FFTW3 (cray-fftw 3.3.10.8, + FFTW3-MPI) | 20.2 min |
+| `cray_aocc` | `elpa+libsci` / `libsci_aocc(_mpi).so.6` | FFTW3 (cray-fftw 3.3.10.8, + FFTW3-MPI) | 26.2 min |
 | `eb_intel` | `elpa+mkl` / MKL 2025.1 (`libmkl_scalapack_lp64`, `libmkl_blacs_intelmpi_lp64`, …) | DFTI | 9.5 min |
-| `eb_foss` | `easybuild+elpa` / OpenBLAS 0.3.29, ScaLAPACK 2.2.2, FlexiBLAS 3.4.5 | FFTW3 | 9.1 min |
+| `eb_foss` | `easybuild+elpa` / OpenBLAS 0.3.29, ScaLAPACK 2.2.2, FlexiBLAS 3.4.5 | FFTW3 (EasyBuild FFTW 3.3.10, found with pkg-config) | 9.1 min |
 
-The times are clean builds of the final build system. The `PSolver` fix (one file) came last: cray_cray was rebuilt from scratch with it, and the other five were brought up to date with an incremental `make`, after which `check.sh` passes again.
+All times are clean builds. The four Cray builds are clean builds of the final source, with `cray-fftw`. For the two EasyBuild toolchains, the `PSolver` fix (one file) came after their clean build, so they were brought up to date with an incremental `make`, after which `check.sh` passes again.
 
-No FFTW module is loaded in the Cray environments, so ABINIT uses its internal Goedecker FFT there.
+## 5.5 FFTW on Cray: `cray-fftw`
+
+Before `cray-fftw` was added to the Cray `env.sh`, configure already tried FFTW3 first, with `-lfftw3_mpi -lfftw3`. The test failed (`cannot find -lfftw3_mpi`), so ABINIT fell back to its internal Goedecker FFT. Loading the module was enough to change that, with no change to ABINIT and no configure argument:
+
+- `cray-fftw` adds its `fftw3.pc` to `PKG_CONFIG_PATH`, and ABINIT's FFTW3 macro (`sd_fftw3.m4`) uses pkg-config when it is available:
+
+  ```
+  checking for fftw3 via pkg-config... yes
+  checking whether the FFTW3 library works... yes
+  checking whether the FFTW3 library supports threads... yes
+  checking whether the FFTW3 MPI library works... yes
+  checking for the actual FFT flavor to use... fftw3
+  ```
+
+- The craype wrappers add `-I$FFTW_INC`. They also link the module's libraries, `fftw3_mpi` and `fftw3_threads` included. So the `fftw3-mpi.f03` test passes and `HAVE_FFTW3_MPI` is defined, although the pkg-config flags give only `-lfftw3 -lfftw3f`.
+- This works the same with CCE, GCC, Intel and AOCC. ABINIT includes the FFTW Fortran 2003 interface files (`fftw3.f03`, `fftw3-mpi.f03`), which use only `iso_c_binding`. They are therefore independent of the Fortran compiler, and no compiler-specific FFTW build is needed.
+
+One detail matters at run time. The binary is linked against the Milan build (`x86_milan`) because the module is loaded. Without `LD_LIBRARY_PATH`, however, the loader takes `libfftw3*.so.mpi31.3` from `/opt/cray/pe/lib64`, which is listed in `ld.so.conf`. On Lucia those files point to the **`x86_rome`** build of the same version. To run with the Milan build, use Cray's usual setting:
+
+```bash
+export LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH:$LD_LIBRARY_PATH
+```
+
+`check.sh` prints both resolutions.
 
 # 6. Pitfalls worth knowing
 
@@ -332,7 +363,7 @@ env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
     bash --noprofile --norc
 source /etc/profile
 module --force purge
-module load Cray/24.07 PrgEnv-gnu/8.4.0
+module load Cray/24.07 PrgEnv-gnu/8.4.0 cray-fftw/3.3.10.8
 FB=~/program/abinit-fallbacks/_build_cray_gnu      # the fallbacks built in step 1
 
 ../configure \
@@ -353,4 +384,5 @@ src/98_main/abinit -b      # check the CPP options
 - **Upstream reports.**
   - AOCC flang's preprocessor bug.
   - The three BigDFT 1.7.1.33 problems of section 3.3.
-- **FFT on Cray.** FFTW (`cray-fftw`) is not in the module set, so the Cray builds use ABINIT's internal FFT. Features that need FFTW3 or DFTI (e.g. GW-R) are not available there.
+- **FFTW variant at run time on Cray.** By default the loader picks the `x86_rome` build of `cray-fftw` (section 5.5). It would be cleaner to embed the module's library path in the binary, for example by linking with `CRAY_ADD_RPATH=yes`. That has not been tried yet.
+- **FFTW3 threads.** OpenMP is off in these builds, so ABINIT uses `fftw3`, not `fftw3-threads`, although `cray-fftw` provides the threaded libraries.
