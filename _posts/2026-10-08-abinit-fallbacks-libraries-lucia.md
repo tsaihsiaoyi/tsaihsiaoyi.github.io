@@ -10,14 +10,17 @@ published: true
 
 # abinit-fallbacks on Lucia (six toolchains)
 
-> **Status, 2026-11-02.** abinit-fallbacks builds all the external libraries of ABINIT from source, as static libraries, on the six toolchains of Lucia. ABINIT itself, built against these libraries, is described in [ABINIT on Lucia (six toolchains)](/post/abinit-fallbacks-lucia.html).
+> **Status, 2026-11-02.** abinit-fallbacks builds all the external libraries of ABINIT from source, as static libraries, on the six toolchains of Lucia. The current `my_develop` was also tested on a workstation with three EasyBuild 2025b toolchains: with no configure argument, it uses the libraries EasyBuild provides and builds only the missing ones (section 8). ABINIT itself, built against these libraries, is described in [ABINIT on Lucia (six toolchains)](/post/abinit-fallbacks-lucia.html).
 
 Versions:
 
 - abinit-fallbacks, fork [tsaihsiaoyi/abinit-fallbacks](https://github.com/tsaihsiaoyi/abinit-fallbacks):
-  - built and checked at commit `6266085` (branch `bigdft_xc_fix`, three commits on top of `my_develop` at `3ddec17`), now merged into `my_develop`;
-  - `my_develop` has moved on since (now `b6aa2ef`). In particular, commit `2a4a80a` switches to BigDFT abinit-1.7.1.34, which fixes problems 1 and 2 of section 5 upstream. These later commits have not been built on Lucia.
-- Cluster: Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11.
+  - Lucia (sections 1–7): built and checked at commit `6266085` (branch `bigdft_xc_fix`, three commits on top of `my_develop` at `3ddec17`), now merged into `my_develop`;
+  - `my_develop` has moved on since. In particular, commit `2a4a80a` switches to BigDFT abinit-1.7.1.34, which fixes problems 1 and 2 of section 5 upstream, and commits `ee852b4`…`b6aa2ef` use the packages already available in the build environment. These later commits have not been built on Lucia;
+  - workstation (section 8): `my_develop` at `b6aa2ef`.
+- Machines:
+  - Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11;
+  - a workstation with an Intel Core Ultra 7 265 (20 cores), 30 GB of memory, Ubuntu 24.04.5.
 
 # 1. Goal and rules
 
@@ -147,7 +150,63 @@ All six builds pass (`RESULT: OK`). They were run as Slurm jobs with 16 cores ea
 
 The tuned options target the build node's CPU: ELPA's SIMD kernels, `-march=native`, and `craype-x86-milan` on Cray. On a different CPU, rebuild; for ELPA, `--disable-elpa-simd` gives generic kernels.
 
-# 8. Open points
+# 8. Workstation tests: libraries from EasyBuild and from the fallbacks
 
-- **Rebuild from the current `my_develop`** (BigDFT abinit-1.7.1.34 and the later build-system changes) on the six toolchains.
+## 8.1 Setup
+
+Three EasyBuild 2025b toolchains, each of which also provides HDF5 1.14.6, netCDF 4.9.3 and netCDF-Fortran 4.6.2 (all with parallel I/O), LibXC 7.0.0 and ELPA 2025.06.002, but not Wannier90, XMLF90, libPSML, BigDFT or AtomPAW:
+
+| Name | Module | Compilers | MPI | Math library |
+|---|---|---|---|---|
+| `foss` | `foss/2025b` | GCC 14.3 | OpenMPI 5.0.8 | FlexiBLAS 3.4.5 / OpenBLAS 0.3.30, ScaLAPACK 2.2.2 |
+| `intel` | `intel/2025b` | icx/ifx 2025.2 | Intel MPI 2021.16 | MKL 2025.2 |
+| `lfoss` | `lfoss/2025b` | LLVM 20.1.8 (clang + flang) | OpenMPI 5.0.8 | FlexiBLAS 3.4.5 / OpenBLAS 0.3.30, ScaLAPACK 2.2.2 |
+
+Three scenarios differ only in the modules loaded besides the toolchain:
+
+| Scenario | Modules loaded besides the toolchain |
+|---|---|
+| `fb` | none |
+| `mix` | `HDF5/1.14.6 netCDF/4.9.3 netCDF-Fortran/4.6.2 libxc/7.0.0 ELPA/2025.06.002` |
+| `partial` (`foss` only) | `HDF5/1.14.6 libxc/7.0.0` |
+
+Every build runs in a clean environment, with **no configure argument**:
+
+```bash
+env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
+    bash --noprofile --norc
+source /etc/profile
+module load foss/2025b
+module load HDF5/1.14.6 netCDF/4.9.3 netCDF-Fortran/4.6.2 libxc/7.0.0 ELPA/2025.06.002   # mix only
+mkdir $FB && cd $FB
+<abinit-fallbacks>/configure --prefix=$FB
+make && make install
+```
+
+## 8.2 What configure selects
+
+- **Compilers:** the MPI wrappers, `mpicc`/`mpicxx`/`mpif90` for `foss` (GNU 14.3) and `lfoss` (LLVM 20.1), `mpiicx`/`mpiicpx`/`mpiifx` for `intel`.
+- **Linear algebra:** `flexiblas+scalapack_pkg` (`-lscalapack -lflexiblas`) for `foss` and `lfoss`, `mkl` (`-qmkl=cluster`) for `intel`. The internal LINALG fallback is never built.
+- **External packages:** each one is looked for with pkg-config (`hdf5_hl`, `libxc`, `elpa`, `netcdf`, `netcdf-fortran`) and used instead of the fallback when it works with the current compilers. The summary of configure marks it with "Install: no".
+
+| Build | Built by the fallbacks | Taken from EasyBuild | Time |
+|---|---|---|---|
+| `foss` fb | all ten packages | none | 4 min |
+| `foss` mix | Wannier90, XMLF90, libPSML, BigDFT, AtomPAW | HDF5, netCDF, netCDF-Fortran, LibXC, ELPA | 1 min |
+| `foss` partial | netCDF, netCDF-Fortran, ELPA, Wannier90, XMLF90, libPSML, BigDFT, AtomPAW | HDF5, LibXC | 2 min |
+| `intel` fb | all ten packages | none | 6 min |
+| `intel` mix | Wannier90, XMLF90, libPSML, BigDFT, AtomPAW | HDF5, netCDF, netCDF-Fortran, LibXC, ELPA | 3 min |
+| `lfoss` fb | all but BigDFT | none | 5 min |
+| `lfoss` mix | Wannier90, XMLF90, libPSML, AtomPAW | HDF5, netCDF, netCDF-Fortran, LibXC, ELPA | 1 min |
+
+Notes:
+
+- In `foss` partial, netCDF-C is built against the HDF5 of EasyBuild, so the whole I/O stack uses one HDF5: its `libnetcdf.settings` lists `-L<EasyBuild HDF5>/lib -lhdf5_hl -lhdf5`, with NC-4 parallel support.
+- BigDFT is not built with LLVM Flang, which crashes on its source code (`LLVM Flang cannot compile BigDFT => disabling the BigDFT fallback`).
+- ABINIT built against each of these seven installations, and passed its smoke tests: see section 6 of the [ABINIT report](/post/abinit-fallbacks-lucia.html).
+
+# 9. Open points
+
+- **Rebuild from the current `my_develop`** (BigDFT abinit-1.7.1.34 and the later build-system changes) on the six toolchains of Lucia.
 - **Fake ScaLAPACK in BigDFT** (fix 3 of section 5). BigDFT's configure could look for ScaLAPACK under other names, so that its stubs are never built when a real library is available.
+- **C compiler type of `mpiicx`.** configure reports `checking for compiler type of 'mpiicx'... gnu`, with no version. The oneAPI check only reads the first line of `mpiicx -V`, which is the banner of the Intel MPI wrapper (`mpiicx for the Intel(R) MPI Library 2021.16`), and the GNU check matches afterwards. The tricks use the Fortran compiler (`intel 2025.2`) and MKL is selected, so this had no effect on the builds of section 8.

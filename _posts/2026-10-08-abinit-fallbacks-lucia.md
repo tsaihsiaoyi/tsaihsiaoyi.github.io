@@ -10,24 +10,31 @@ published: true
 
 # ABINIT on Lucia (six toolchains)
 
-> **Status, 2026-11-02.** ABINIT branch `cray_autodetect` builds on all six toolchains of Lucia, including BigDFT and AOCC, and passes every build check. The four Cray toolchains need **no configure argument** besides the library paths, and use FFTW3 from the `cray-fftw` module without any extra argument (section 5.3). The test suite was not part of this work.
+> **Status, 2026-11-02.** ABINIT branch `cray_autodetect` builds on all six toolchains of Lucia, including BigDFT and AOCC, and passes every build check. The four Cray toolchains need **no configure argument** besides the library paths, and use FFTW3 from the `cray-fftw` module without any extra argument (section 5.3). Five later commits (section 3.4) let configure find an OpenBLAS + ScaLAPACK stack such as EasyBuild's `foss`, support LLVM Flang 20, and accept an HDF5 built with CMake. They were tested on a workstation with three EasyBuild 2025b toolchains, with the libraries taken from the fallbacks, from EasyBuild, or from both: none of the seven builds needs an argument besides the paths of the libraries built by the fallbacks (section 6). These commits have not been tested on Lucia yet. The test suite was not part of this work; each workstation build only ran four smoke tests.
 
 Versions:
 
 - ABINIT 10.9.3 (development), branch `cray_autodetect`:
-  - built and checked at commit `892bc37de3`: commits `0d793ca5da`, `41f1b841a2` and `892bc37de3` on top of `11cc7b0a57` of develop;
-  - rebased on 2026-11-02 onto upstream develop (`a0d07ec4c5`), as `8e703f5ffa`, `7087cbaa14` and `15456e01e3`. The changes are the same, plus `libsci` in the `configure --help` text and in `doc/build/config-template.ac9`. The six builds have not been repeated on the rebased branch.
-- External libraries: abinit-fallbacks commit `6266085`, one static installation per toolchain (`$FB` below). Packages, versions and build: see [abinit-fallbacks on Lucia (six toolchains)](/post/abinit-fallbacks-libraries-lucia.html).
-- Cluster: Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11.
+  - Lucia (sections 4–5): commit `892bc37de3`, i.e. commits `0d793ca5da`, `41f1b841a2` and `892bc37de3` on top of `11cc7b0a57` of develop;
+  - rebased on 2026-11-02 onto upstream develop (`a0d07ec4c5`), as `8e703f5ffa`, `7087cbaa14` and `15456e01e3`. The changes are the same, plus `libsci` in the `configure --help` text and in `doc/build/config-template.ac9`;
+  - workstation (section 6): five more commits, `7f3fa29eb3`, `77acf5425e`, `a84e3a012d`, `f7fb136e1c` and `6cd90d43b2` (section 3.4). All seven builds use `6cd90d43b2`.
+- External libraries:
+  - Lucia: abinit-fallbacks commit `6266085`, one static installation per toolchain (`$FB` below);
+  - workstation: abinit-fallbacks `b6aa2ef` (`my_develop`), and EasyBuild modules.
+
+  Packages, versions and build: see [abinit-fallbacks on Lucia (six toolchains)](/post/abinit-fallbacks-libraries-lucia.html).
+- Machines:
+  - Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11;
+  - a workstation with an Intel Core Ultra 7 265 (20 cores), 30 GB of memory, Ubuntu 24.04.5.
 
 # 1. Goal and rules
 
-For each of the six compiler toolchains available on Lucia, build ABINIT against the libraries built with abinit-fallbacks, with the **smallest possible set of configure arguments**.
+For each of the six compiler toolchains available on Lucia, build ABINIT against the libraries built with abinit-fallbacks, with the **smallest possible set of configure arguments**. Section 6 does the same on a workstation with EasyBuild toolchains, where part of the libraries can also come from EasyBuild modules.
 
-- Only the **compiler, MPI and math library** come from cluster modules, plus `cray-fftw` on the Cray toolchains. HDF5, netCDF, LibXC, ELPA, Wannier90, XMLF90, libPSML and BigDFT come from the fallbacks, never from `cray-hdf5`, `cray-netcdf` or EasyBuild modules.
+- On Lucia, only the **compiler, MPI and math library** come from cluster modules, plus `cray-fftw` on the Cray toolchains. HDF5, netCDF, LibXC, ELPA, Wannier90, XMLF90, libPSML and BigDFT come from the fallbacks, never from `cray-hdf5`, `cray-netcdf` or EasyBuild modules.
 - Everything runs in a **clean environment**: `env -i`, then `source /etc/profile` (only for the `module` command), then the module lines of the toolchain.
 - Every configure argument beyond the library paths must be justified by a failing attempt without it. Each attempt's `config.log` is kept.
-- Heavy work runs as Slurm jobs on the debug partition.
+- On Lucia, heavy work runs as Slurm jobs on the debug partition.
 
 # 2. The six toolchains
 
@@ -74,7 +81,7 @@ Commit `41f1b841a2` (rebased: `7087cbaa14`) lets configure find everything a Cra
 AOCC's `ftn --version` prints `AMD clang version 16.0.3 (CLANG: AOCC_4.1.0...)`. That matches ABINIT's LLVM-flang test, and AOCC flang is still treated as LLVM because it needs the LLVM settings. The same commit (`lang-fortran.m4`, `configure.ac`) adapts two of them:
 
 - `-ffixed-line-length=132` becomes `-Mextend` in its Fortran hints. Classic flang rejects the former (`clang-16: error: unknown argument: '-ffixed-line-length=132'`), and configure stops with "cannot compile a simple Fortran program".
-- The linear-algebra Fortran flags (the ELPA modules) are added to `FCFLAGS` for every directory. Classic flang needs module files that are only used *indirectly* (`elpa_api.mod`), and ABINIT otherwise passes them only to the directories that use linear algebra directly.
+- The linear-algebra Fortran flags (the ELPA modules) are added to `FCFLAGS` for every directory. Classic flang needs module files that are only used *indirectly* (`elpa_api.mod`), and ABINIT otherwise passes them only to the directories that use linear algebra directly. Commit `f7fb136e1c` extends this to LLVM Flang (section 3.4).
 
 Commit `0d793ca5da` (rebased: `8e703f5ffa`) rewrites three places of ABINIT's own sources that classic flang cannot compile:
 
@@ -90,9 +97,20 @@ The preprocessor bug depends on the data: the same macros expand correctly in hu
 
 Commit `892bc37de3` (rebased: `15456e01e3`) fixes a real bug that only CCE detected. `m_mklocl_realspace.F90` called BigDFT's `PSolver` with the integer `0` where the interface expects a `type(xc_info)` (`ftn-1279`). The other compilers accepted it, so `PSolver` read an integer as an `xc_info` object. It now passes an object initialised with `xc_init(xc, 0, XC_ABINIT, 1)`.
 
+## 3.4 OpenBLAS + ScaLAPACK, LLVM Flang and CMake HDF5
+
+Five commits, each found with a failing build on the workstation (section 6):
+
+- **LAPACK in OpenBLAS** (`7f3fa29eb3`, `sd_math_linalg_core.m4`). With OpenBLAS, LAPACK was always looked for as `-llapack`. OpenBLAS usually includes LAPACK, and EasyBuild installs no `liblapack`, so the serial detection failed; where a system `liblapack` exists, that reference LAPACK would be linked instead. OpenBLAS's own LAPACK is now used when present, and `-llapack` only when it is missing. This is limited to the `openblas` flavors, because IBM ESSL has routines with LAPACK names but other arguments.
+- **BLACS in ScaLAPACK** (same commit). The `netlib` flavor looked for BLACS only as `-lblacs -lblacsCinit -lblacsF77init`, the layout of ScaLAPACK 1.x. ScaLAPACK ≥ 2.0 includes BLACS. When these libraries do not work, BLACS is now looked for in the ScaLAPACK libraries. Before, they also stayed in `LIBS` after the failed check, so the ScaLAPACK check failed as well. With these two changes, `eb_foss` should need no argument any more (section 4).
+- **LLVM optimization flags** (`77acf5425e`, `config/optim/*_llvm_default-optim.conf`). The standard flags were `-mtune=native -mcpu=native`, which clang and flang only accept on AArch64. On x86_64, LLVM 20 stops with `unsupported option '-mcpu='`, and configure fails at its first link test ("linking to Fortran libraries from C fails"). The LLVM compilers now get `-march=native`, as GNU does, and AArch64 keeps the previous flags. AOCC uses these flags too, so `cray_aocc` now gets `-march=native` instead of `-mtune=native -mcpu=native`.
+- **Linear algebra with LLVM Flang** (`a84e3a012d`, `sd_math_linalg.m4`). The automatic detection only had sequences for the GNU and Intel Fortran compilers. With LLVM Flang, only `netlib` (`-lblas`) was tried, so OpenBLAS was never found. configure only warned, and the link of the executables failed. OpenBLAS (directly and with pkg-config) and ATLAS are now tried first, as for GNU, but not MKL, which only supports the GNU and Intel compilers.
+- **ELPA modules with LLVM Flang** (`f7fb136e1c`, `configure.ac`). Like classic flang, LLVM Flang needs the module files used indirectly: `src/41_geometry/m_supercell.F90` failed with `Cannot parse module file for module 'elpa'`. The linear-algebra Fortran flags now go to every directory with any LLVM Fortran compiler, not only AOCC.
+- **HDF5 built with CMake** (`6cd90d43b2`, `sd_io_hdf5.m4`). `h5pcc -showconfig` prints `High-level library: ON` for an HDF5 built with CMake, as EasyBuild's is, while configure only accepted `yes`. Without `-lhdf5_hl`, a static netCDF built against that HDF5 (by the fallbacks) failed to link (`undefined reference to H5DSattach_scale`, …), and configure disabled netCDF. `ON` is now accepted, as for the shared-library check just below. The Fortran high-level library keeps its previous handling, since its name differs between CMake (`libhdf5_hl_fortran`) and autotools (`libhdf5hl_fortran`) builds.
+
 # 4. Configure arguments
 
-The same command for every toolchain. It contains only the libraries to use, and no `--prefix` (ABINIT is built in place):
+The same command for every toolchain of Lucia. It contains only the libraries to use, and no `--prefix` (ABINIT is built in place):
 
 ```bash
 ../configure \
@@ -113,13 +131,13 @@ Beyond that:
 |---|---|
 | `cray_cray`, `cray_gnu`, `cray_intel`, `cray_aocc` | **none** (FFTW3 included, see 5.3) |
 | `eb_intel` | none |
-| `eb_foss` | `--with-linalg-flavor=easybuild+elpa` |
+| `eb_foss` | `--with-linalg-flavor=easybuild+elpa` at `892bc37de3`; none expected since `7f3fa29eb3` (section 3.4), not yet checked on Lucia |
 
-**`--with-linalg-flavor=easybuild+elpa` (eb_foss).** The automatic detection finds EasyBuild's OpenBLAS (through pkg-config) but no ScaLAPACK. Its MPI flavor `netlib` hard-codes `-lblacs -lblacsCinit -lblacsF77init`, which ScaLAPACK 2.2.2 does not have. The `easybuild` flavor uses `-lopenblas -lscalapack`. `+elpa` is needed because an explicit flavor no longer adds the ELPA check by itself (`sd_math_linalg.m4`).
+**`--with-linalg-flavor=easybuild+elpa` (eb_foss, at `892bc37de3`).** The automatic detection finds EasyBuild's OpenBLAS (through pkg-config) but no ScaLAPACK. Its MPI flavor `netlib` hard-codes `-lblacs -lblacsCinit -lblacsF77init`, which ScaLAPACK 2.2.2 does not have. The `easybuild` flavor uses `-lopenblas -lscalapack`. `+elpa` is needed because an explicit flavor no longer adds the ELPA check by itself (`sd_math_linalg.m4`). The same OpenBLAS + ScaLAPACK stack is found without argument since `7f3fa29eb3`: see `foss` in section 6.
 
 ABINIT's configure takes only 20–60 s here, so each configure attempt was a short Slurm job, and its logs were archived before the next attempt.
 
-# 5. Results
+# 5. Results on Lucia
 
 ## 5.1 What "OK" means
 
@@ -181,7 +199,79 @@ export LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH:$LD_LIBRARY_PATH
 
 `check.sh` prints both resolutions.
 
-# 6. Pitfalls worth knowing
+# 6. Workstation tests: EasyBuild 2025b
+
+## 6.1 Toolchains and scenarios
+
+| Name | Module | Compilers | MPI | Math library |
+|---|---|---|---|---|
+| `foss` | `foss/2025b` | GCC 14.3 | OpenMPI 5.0.8 | FlexiBLAS 3.4.5 / OpenBLAS 0.3.30, ScaLAPACK 2.2.2, FFTW 3.3.10 |
+| `intel` | `intel/2025b` | icx/ifx 2025.2 | Intel MPI 2021.16 | MKL 2025.2 |
+| `lfoss` | `lfoss/2025b` | LLVM 20.1.8 (clang + flang) | OpenMPI 5.0.8 | FlexiBLAS 3.4.5 / OpenBLAS 0.3.30, ScaLAPACK 2.2.2, FFTW 3.3.10 |
+
+For each toolchain, EasyBuild also provides HDF5 1.14.6, netCDF 4.9.3 and netCDF-Fortran 4.6.2 (all with parallel I/O), LibXC 7.0.0 and ELPA 2025.06.002, but not Wannier90, XMLF90, libPSML or BigDFT. The scenarios differ in the modules loaded besides the toolchain:
+
+| Scenario | Modules loaded besides the toolchain | Built by the fallbacks |
+|---|---|---|
+| `fb` | none | all the libraries |
+| `mix` | `HDF5/1.14.6 netCDF/4.9.3 netCDF-Fortran/4.6.2 libxc/7.0.0 ELPA/2025.06.002` | Wannier90, XMLF90, libPSML, BigDFT |
+| `partial` (`foss` only) | `HDF5/1.14.6 libxc/7.0.0` | netCDF, netCDF-Fortran, ELPA, Wannier90, XMLF90, libPSML, BigDFT |
+
+The fallbacks themselves decide which libraries to build, from the modules loaded (see the fallbacks report). ABINIT then gets `--with-<package>=$FB/<package>/default` for each library installed by the fallbacks, and **no other argument**. For example, `foss` mix:
+
+```bash
+env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
+    bash --noprofile --norc
+source /etc/profile
+module load foss/2025b
+module load HDF5/1.14.6 netCDF/4.9.3 netCDF-Fortran/4.6.2 libxc/7.0.0 ELPA/2025.06.002
+
+(cd $FB && <abinit-fallbacks>/configure --prefix=$FB && make && make install)
+
+../configure \
+  --with-wannier90=$FB/wannier90/default --with-xmlf90=$FB/xmlf90/default \
+  --with-libpsml=$FB/libpsml/default --with-bigdft=$FB/bigdft/default
+make -j 8
+```
+
+Smoke tests, with `tests/runtests.py`:
+
+- serial: `v1[1]` and `libxc[1]`;
+- 4 MPI processes: `paral[24]` (`paral_kgb 1` with `use_slk 1`, i.e. BLACS and ScaLAPACK) and `mpiio[22]` (MPI-IO).
+
+## 6.2 Results
+
+All seven builds succeed and pass the four smoke tests, all with commit `6cd90d43b2`:
+
+| Build | Other arguments | Linear algebra (configure) | FFT | Found in the environment | `make -j 8` | Smoke tests |
+|---|---|---|---|---|---|---|
+| `foss` fb | none | `elpa+netlib+openblas` | FFTW3 | — | 5 min | 4/4 |
+| `foss` mix | none | `elpa+netlib+openblas` | FFTW3 | HDF5, netCDF, netCDF-Fortran, LibXC, ELPA | 5 min | 4/4 |
+| `foss` partial | none | `elpa+netlib+openblas` | FFTW3 | HDF5, LibXC | 5 min | 4/4 |
+| `intel` fb | none | `elpa+mkl` | DFTI | — | 6 min | 4/4 |
+| `intel` mix | none | `elpa+mkl` | DFTI | HDF5, netCDF, netCDF-Fortran, LibXC, ELPA | 6 min | 4/4 |
+| `lfoss` fb | none | `elpa+netlib+openblas` | FFTW3 | — | 11 min | 4/4 |
+| `lfoss` mix | none | `elpa+netlib+openblas` | FFTW3 | HDF5, netCDF, netCDF-Fortran, LibXC, ELPA | 11 min | 4/4 |
+
+"Other arguments" means arguments besides the `--with-<package>` paths of the fallbacks: nine in `foss` fb and `intel` fb, eight in `lfoss` fb (no BigDFT), seven in `foss` partial, four in the `mix` builds (three with `lfoss`). FFTW3 and MKL come with the toolchain modules.
+
+Every build:
+
+- `abinit -b` lists `HAVE_MPI_IO HAVE_HDF5_MPI HAVE_NETCDF_MPI HAVE_NETCDF_FORTRAN_MPI HAVE_LIBXC HAVE_LINALG_SCALAPACK HAVE_LINALG_ELPA HAVE_WANNIER90 HAVE_LIBPSML HAVE_XMLF90`, plus `HAVE_BIGDFT` except with LLVM Flang;
+- `ldd abinit` shows no linear algebra from the system, only from EasyBuild;
+- the libraries of the fallbacks are static, so `ldd abinit` only lists libraries of EasyBuild and of the system.
+
+## 6.3 Observations
+
+- **No `--with-linalg-flavor`.** With GNU and LLVM, configure selects `elpa+netlib+openblas`: OpenBLAS with its own LAPACK, and BLACS and ScaLAPACK from `-lscalapack` (`checking netlib ScaLAPACK libraries for BLACS... -lscalapack`). With Intel, it selects `elpa+mkl`.
+- **Libraries of EasyBuild are found without argument.** With the modules loaded, configure takes HDF5, netCDF, netCDF-Fortran, LibXC and ELPA from pkg-config (`checking how HDF5 parameters have been set... pkg`), with parallel I/O for HDF5 and netCDF.
+- **OpenBLAS and FlexiBLAS.** ABINIT links OpenBLAS directly, while the fallbacks select FlexiBLAS. EasyBuild's ScaLAPACK is linked against FlexiBLAS, so both libraries end up in `ldd abinit`.
+  - In the `fb` and `partial` builds, the linear algebra libraries are `-lelpa -lscalapack -lopenblas`: `libopenblas` is a direct dependency of `abinit`, and FlexiBLAS is only loaded by ScaLAPACK, so ABINIT's BLAS calls go to OpenBLAS.
+  - In the `mix` builds, the pkg-config flags of EasyBuild's ELPA (`-lelpa -lscalapack -lflexiblas`) come before `-lopenblas`, so the BLAS calls go through FlexiBLAS, whose default backend is the same OpenBLAS.
+- **LLVM Flang 20** builds ABINIT with the commits `77acf5425e`, `a84e3a012d` and `f7fb136e1c`, without BigDFT, which the fallbacks do not build with LLVM Flang. Its build takes about twice as long as with GCC.
+- **One HDF5 for the whole I/O stack.** In `foss` partial, the fallbacks build netCDF against EasyBuild's HDF5, and ABINIT links that static netCDF with EasyBuild's shared HDF5 (commit `6cd90d43b2`).
+
+# 7. Pitfalls worth knowing
 
 - **Automake rebuild rules.** ABINIT's Makefiles have no "maintainer mode". If a file of `config/m4` is newer than `configure`, every `make` reruns aclocal/autoconf/automake *in the shared source tree*, and concurrent builds collide (`autom4te: cannot rename …`).
   - `aclocal` does not rewrite `aclocal.m4` when only the content of an included m4 file changes. So after `./autogen.sh`, touch `aclocal.m4`, `config.h.in`, `configure` and the `Makefile.in` files, in that order.
@@ -190,7 +280,7 @@ export LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH:$LD_LIBRARY_PATH
   - Intel MPI: `srun --mpi=pmi2` with `I_MPI_PMI_LIBRARY=/usr/lib64/libpmi2.so`;
   - OpenMPI 5: `srun --mpi=pmix`.
 
-# 7. Reproducing one build
+# 8. Reproducing one build on Lucia
 
 For example `cray_gnu`, from a build directory inside the ABINIT source tree on branch `cray_autodetect`:
 
@@ -212,10 +302,10 @@ make -j 64
 src/98_main/abinit -b      # check the CPP options
 ```
 
-# 8. Open points
+# 9. Open points
 
-- **Rebuild from the rebased branch** on the six toolchains.
-- **eb_foss** still needs `--with-linalg-flavor=easybuild+elpa`. ABINIT's own detection could look for BLACS inside `libscalapack`, as the fallbacks do.
+- **Lucia with the current branch.** Rebuild the six toolchains from the rebased branch with the commits of section 3.4. `eb_foss` should need no argument, and `cray_aocc` now gets `-march=native` instead of `-mtune=native -mcpu=native`.
+- **No linear algebra is only a warning.** When nothing works, configure prints `linear algebra does not work` and goes on (policy `warn`), so the error only appears when the executables are linked, after the whole build.
 - **`FCFLAGS_HINTS`** cannot override the vendor hints. `configure.ac` applies the user's value (`ABI_ENV_RECALL`, line 136) *before* computing the vendor hints (`ABI_FC_HINTS`, line 403), which overwrite it. With the AOCC changes of section 3.2, Lucia no longer needs it.
 - **Upstream report** of AOCC flang's preprocessor bug.
 - **FFTW variant at run time on Cray.** By default the loader picks the `x86_rome` build of `cray-fftw` (section 5.3). It would be cleaner to embed the module's library path in the binary, for example by linking with `CRAY_ADD_RPATH=yes`. That has not been tried yet.
