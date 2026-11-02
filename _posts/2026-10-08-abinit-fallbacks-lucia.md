@@ -1,5 +1,5 @@
 ---
-title: ABINIT + abinit-fallbacks on Lucia (six toolchains)
+title: ABINIT on Lucia (six toolchains)
 date: '2026-10-08 16:00:00'
 permalink: /post/abinit-fallbacks-lucia.html
 layout: post
@@ -8,33 +8,24 @@ published: true
 
 
 
-# ABINIT + abinit-fallbacks on Lucia (six toolchains)
+# ABINIT on Lucia (six toolchains)
 
-> **Status, 2026-10-08.** ABINIT builds on all six toolchains of Lucia, against external libraries built from source with abinit-fallbacks. That includes BigDFT, AOCC, and every build check. With the changes of section 5, the four Cray toolchains need **no configure argument** besides the library paths. On Cray, ABINIT now also uses FFTW3 from the `cray-fftw` module, still without any extra argument (section 5.5). The test suite was not part of this work.
+> **Status, 2026-11-02.** ABINIT branch `cray_autodetect` builds on all six toolchains of Lucia, including BigDFT and AOCC, and passes every build check. The four Cray toolchains need **no configure argument** besides the library paths, and use FFTW3 from the `cray-fftw` module without any extra argument (section 5.3). The test suite was not part of this work.
 
 Versions:
 
-- ABINIT 10.9.3 (development):
-  - branch `fix_hdf5`, commit `11cc7b0a57` (sections 4.1–4.3);
-  - then branch `cray_autodetect` on top of it, commits `0d793ca5da`, `41f1b841a2` and `892bc37de3` (section 5; not published yet).
-- abinit-fallbacks, fork [tsaihsiaoyi/abinit-fallbacks](https://github.com/tsaihsiaoyi/abinit-fallbacks):
-  - branch `my_develop`, commit `3ddec17`;
-  - then branch `bigdft_xc_fix` on top of it, commits `46c9322`, `f36663b` and `6266085` (section 3.3; not published yet).
+- ABINIT 10.9.3 (development), branch `cray_autodetect`:
+  - built and checked at commit `892bc37de3`: commits `0d793ca5da`, `41f1b841a2` and `892bc37de3` on top of `11cc7b0a57` of develop;
+  - rebased on 2026-11-02 onto upstream develop (`a0d07ec4c5`), as `8e703f5ffa`, `7087cbaa14` and `15456e01e3`. The changes are the same, plus `libsci` in the `configure --help` text and in `doc/build/config-template.ac9`. The six builds have not been repeated on the rebased branch.
+- External libraries: abinit-fallbacks commit `6266085`, one static installation per toolchain (`$FB` below). Packages, versions and build: see [abinit-fallbacks on Lucia (six toolchains)](/post/abinit-fallbacks-libraries-lucia.html).
 - Cluster: Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11.
 
 # 1. Goal and rules
 
-For each of the six compiler toolchains available on Lucia:
+For each of the six compiler toolchains available on Lucia, build ABINIT against the libraries built with abinit-fallbacks, with the **smallest possible set of configure arguments**.
 
-1. build all the ABINIT external libraries from source with abinit-fallbacks;
-2. build ABINIT against exactly those libraries, with the **smallest possible set of configure arguments**.
-
-The rules were the same for both steps:
-
-- Only the **compiler, MPI and math library** come from cluster modules. HDF5, netCDF, LibXC, ELPA, Wannier90, BigDFT, … all come from the fallbacks, never from `cray-hdf5`, `cray-netcdf` or EasyBuild modules. The one later addition is `cray-fftw`, which ABINIT uses on the Cray toolchains. None of the fallbacks uses FFTW.
-- Everything runs in a **clean environment**: `env -i`, then `source /etc/profile` (only for the `module` command), then the module lines of the toolchain. My `~/.bashrc` activates a conda environment, and two hidden dependencies came from it before I switched to `env -i`:
-  - netCDF-C picked up conda's `xml2-config`;
-  - BigDFT needed conda's `python`.
+- Only the **compiler, MPI and math library** come from cluster modules, plus `cray-fftw` on the Cray toolchains. HDF5, netCDF, LibXC, ELPA, Wannier90, XMLF90, libPSML and BigDFT come from the fallbacks, never from `cray-hdf5`, `cray-netcdf` or EasyBuild modules.
+- Everything runs in a **clean environment**: `env -i`, then `source /etc/profile` (only for the `module` command), then the module lines of the toolchain.
 - Every configure argument beyond the library paths must be justified by a failing attempt without it. Each attempt's `config.log` is kept.
 - Heavy work runs as Slurm jobs on the debug partition.
 
@@ -55,115 +46,53 @@ Each build directory has an `env.sh` with exactly these lines, for example:
 module --force purge          # also unloads the sticky Cray/ and EasyBuild/ modules
 module load Cray/24.07
 module load PrgEnv-gnu/8.4.0
-module load cray-fftw/3.3.10.8   # ABINIT build directories of the Cray toolchains only
+module load cray-fftw/3.3.10.8   # Cray toolchains only
 ```
 
 `cray-fftw/3.3.10.8` is the only version installed. Because `craype-x86-milan` is loaded, the module selects the Milan build of FFTW.
 
-# 3. Step 1: abinit-fallbacks
+# 3. Changes to ABINIT
 
-## 3.1 Packages
+## 3.1 Cray Programming Environment
 
-All packages are installed as **static libraries**, one directory per toolchain (`$FB` below):
+Commit `41f1b841a2` (rebased: `7087cbaa14`) lets configure find everything a Cray PE provides:
 
-| Package | Version |
-|---|---|
-| HDF5 (parallel) | 1.14.6 |
-| netCDF-C (parallel) | 4.9.3 |
-| netCDF-Fortran | 4.6.2 |
-| LibXC | 7.0.0 |
-| ELPA | 2025.01.001 |
-| Wannier90 | 2.0.1.1 |
-| XMLF90 | 1.6.3 |
-| libPSML | 2.1.0 |
-| BigDFT | abinit-1.7.1.33 |
-| AtomPAW | 4.2.0.3 (program only) |
+- **Compilers** (`config/m4/arch-mpi.m4`). By default, configure searches `PATH` for MPI wrappers (`config/m4/sd_arch_mpi.m4`), and in every PrgEnv it finds cray-mpich's own `mpicc`/`mpic++`/`mpifort`. Those neither link LibSci nor add the `craype-x86-milan` target options. When `CRAYPE_VERSION` and `PE_ENV` are set and `cc`/`CC`/`ftn` exist, configure now uses the craype wrappers unless `CC`/`CXX`/`FC` are given:
 
-## 3.2 Changes to the abinit-fallbacks build system
+  ```
+  checking for a Cray Programming Environment... yes (PrgEnv: GNU)
+  configure: using the Cray compiler wrappers: CC=cc CXX=CC FC=ftn
+  ```
 
-Upstream abinit-fallbacks did not work out of the box on these toolchains. The changes are in commits `a46c150`…`3ddec17` of my fork:
+- **`libsci` linear-algebra flavor** (`sd_math_linalg*.m4`), tried first by `auto` on a Cray PE, or selected with `--with-linalg-flavor=libsci`. Without it, the automatic detection picks the system OpenBLAS (GNU), MKL (Intel, since PrgEnv-intel ships one) or nothing (CCE, AOCC).
+  - With the wrappers, no library has to be named: BLAS, LAPACK, BLACS and ScaLAPACK are all "none required".
+  - With other compilers (e.g. `FC=mpifort`), the `libsci_<PrgEnv>` and `libsci_<PrgEnv>_mpi` libraries are linked explicitly, but only when they match the compiler in use.
+- **BigDFT link order** (`sd_bigdft.m4`). `libyaml.a` is now passed as `-Wl,<path>/libyaml.a`. The Cray `ftn` driver moves plain file arguments in front of all `-l` options. That put `libyaml.a` *before* `libbigdft-1.a`, so with CCE every BigDFT link failed with `undefined reference to yaml_parser_initialize`.
 
-- **Compilers:**
-  - In a Cray PE, use the craype wrappers `cc`/`CC`/`ftn`.
-  - Otherwise prefer the MPI wrappers.
-- **Linear algebra:**
-  - New `libsci` flavor: the craype wrappers link Cray LibSci implicitly, so no library has to be added.
-  - BLACS is detected inside `libscalapack` (ScaLAPACK ≥ 2.0 has no separate `libblacs`).
-- **Cray Fortran:**
-  - `-ef` to get lower-case module file names (`netcdf.mod`, not `NETCDF.mod`).
-  - A one-line patch to ELPA (a non-standard continuation line).
-- **ELPA:**
-  - Build only the library, not its hundreds of test programs.
-  - Disabled without MPI.
-  - SIMD kernels SSE/AVX/AVX2.
-- **netCDF-C:** `--disable-libxml2` (bundled tinyxml2) and `--disable-dap`.
-- **BigDFT:**
-  - `PYTHON=/usr/bin/python3` (there is no `python` in a clean RHEL 8 environment).
-  - Link the full static netCDF/HDF5 dependency list (`nc-config --static --libs`).
-  - `-h ipa1` for CCE 18 (internal compiler error, "Broken module found").
-  - `-O1` for AOCC 4.1 (flang crashes on `src/forces.f90`).
-- **GCC ≥ 10:** `-fallow-argument-mismatch` for BigDFT and Wannier90.
-- **XMLF90:** module search paths needed by flang-based compilers.
-- **LibXC:** optimisation tweaks for the Intel and Cray compilers.
-- **`abinit-fallbacks-config`:** fixed the BigDFT path, and dropped a non-existent `libatompaw`.
+## 3.2 AOCC 4.1 (classic flang)
 
-## 3.3 BigDFT: three more fixes, needed to link it into ABINIT
+AOCC's `ftn --version` prints `AMD clang version 16.0.3 (CLANG: AOCC_4.1.0...)`. That matches ABINIT's LLVM-flang test, and AOCC flang is still treated as LLVM because it needs the LLVM settings. The same commit (`lang-fortran.m4`, `configure.ac`) adapts two of them:
 
-These are in branch `bigdft_xc_fix`. Each one surfaced only once ABINIT was configured with `--with-bigdft`:
+- `-ffixed-line-length=132` becomes `-Mextend` in its Fortran hints. Classic flang rejects the former (`clang-16: error: unknown argument: '-ffixed-line-length=132'`), and configure stops with "cannot compile a simple Fortran program".
+- The linear-algebra Fortran flags (the ELPA modules) are added to `FCFLAGS` for every directory. Classic flang needs module files that are only used *indirectly* (`elpa_api.mod`), and ABINIT otherwise passes them only to the directories that use linear algebra directly.
 
-1. **Private routines used from outside** (patch `bigdft-abinit-1.7.1.33-0001.patch`, commit `46c9322`). BigDFT's `src/modules/xc.f90` calls `abi_libxc_functionals_getrefs` and `abi_libxc_functionals_constants_load`, but the bundled libABINIT declares them `private`. The compilers then treat the calls as calls to external procedures that don't exist, so **every** program linking `libbigdft-1.a` fails:
+Commit `0d793ca5da` (rebased: `8e703f5ffa`) rewrites three places of ABINIT's own sources that classic flang cannot compile:
 
-   ```
-   undefined reference to `abi_libxc_functionals_constants_load_'
-   ```
+| File | Problem | Fix |
+|---|---|---|
+| `shared/libpaw/src/m_paw_atom_solve.F90` | `type(logical)` (Fortran 2008 `TYPE(intrinsic-type)`) is not supported: `F90-S-0155-Derived type has not been declared - logical` | `logical` |
+| `src/62_ctqmc/m_CtqmcInterface.F90` | Bug in flang's integrated preprocessor: the nested macro `MALLOC` → `ABI_MALLOC` comes out as `C(this%Hybrid_chains,(this%num_chains))` | `ABI_MALLOC` directly |
+| `src/48_diago/m_chebfi2.F90` (3 places) | Same preprocessor bug inside `ABI_MALLOC_IFNOT` | `if (.not. allocated(x)) then; ABI_MALLOC(x,...); endif` |
 
-   The patch makes the two routines public.
+The preprocessor bug depends on the data: the same macros expand correctly in hundreds of other places, and in small test files.
 
-2. **Missing module files** (patch `-0002`, commit `f36663b`). BigDFT installs its own `.mod` files but not those of the bundled libABINIT (`abi_libxc_functionals.mod`, …). Classic flang (AOCC) needs every module used indirectly, so the patch adds an install rule for them.
+## 3.3 `PSolver` argument
 
-3. **Fake ScaLAPACK** (commit `6266085`). BigDFT's configure only tries `-lscalapack`. Without it, BigDFT compiles `src/modules/blacs_fake.f90`, stubs such as `blacs_gridinit` or `pdgemm` that just `stop 'FAKE …'`. In a program linking `libbigdft-1.a`, these stubs **replace the real routines** whenever the real library comes later on the link line. That is the case with the Cray wrappers, which add LibSci at the very end. Every ScaLAPACK run of ABINIT then stopped in `FAKE BLABS_GRIDINIT`. The fallbacks now pass `--with-scalapack=-lsci_<PrgEnv>_mpi` (LibSci) or `-lmkl_scalapack_lp64` (MKL) to BigDFT.
+Commit `892bc37de3` (rebased: `15456e01e3`) fixes a real bug that only CCE detected. `m_mklocl_realspace.F90` called BigDFT's `PSolver` with the integer `0` where the interface expects a `type(xc_info)` (`ftn-1279`). The other compilers accepted it, so `PSolver` read an integer as an `xc_info` object. It now passes an object initialised with `xc_init(xc, 0, XC_ABINIT, 1)`.
 
-## 3.4 Build
+# 4. Configure arguments
 
-`build.sh` in each directory does, from any shell:
-
-```bash
-env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
-    bash --noprofile --norc
-source /etc/profile
-source env.sh
-../configure --prefix=$PWD      # compilers and math library are detected automatically
-make
-make install
-./check.sh                      # writes build-summary.txt
-```
-
-`check.sh` verifies that:
-
-- every package is installed;
-- `bin/abinit-fallbacks-config` returns existing directories;
-- no installed program depends on a shared HDF5, netCDF or LibXC library from the cluster.
-
-## 3.5 Results
-
-All six builds pass (`RESULT: OK`). They were run as Slurm jobs with 16 cores each, from commit `6266085`:
-
-| Toolchain | Compilers detected | Math library detected | Time |
-|---|---|---|---|
-| `cray_cray` | `cc` / `CC` / `ftn` (CCE 18.0) | `libsci` | 25 min |
-| `cray_gnu` | `cc` / `CC` / `ftn` (GCC 13.3) | `libsci` | 8 min |
-| `cray_intel` | `cc` / `CC` / `ftn` (ifort 2021.7) | `libsci` | 14 min |
-| `cray_aocc` | `cc` / `CC` / `ftn` (AOCC 4.1) | `libsci` | 16 min |
-| `eb_intel` | `mpiicx` / `mpiicpx` / `mpiifx` (2025.1) | `mkl` (`-qmkl=cluster`) | 13 min |
-| `eb_foss` | `mpicc` / `mpicxx` / `mpif90` (GCC 14.2) | OpenBLAS (pkg-config) + `-lscalapack` | 12 min |
-
-The tuned options target the build node's CPU: ELPA's SIMD kernels, `-march=native`, and `craype-x86-milan` on Cray. On a different CPU, rebuild; for ELPA, `--disable-elpa-simd` gives generic kernels.
-
-# 4. Step 2: ABINIT `fix_hdf5` as it is
-
-## 4.1 Baseline configure command
-
-The same for every toolchain. It contains only the libraries to use, and no `--prefix` (ABINIT is built in place):
+The same command for every toolchain. It contains only the libraries to use, and no `--prefix` (ABINIT is built in place):
 
 ```bash
 ../configure \
@@ -174,118 +103,25 @@ The same for every toolchain. It contains only the libraries to use, and no `--p
   --with-elpa=$FB/elpa/default \
   --with-wannier90=$FB/wannier90/default \
   --with-xmlf90=$FB/xmlf90/default \
-  --with-libpsml=$FB/libpsml/default
+  --with-libpsml=$FB/libpsml/default \
+  --with-bigdft=$FB/bigdft/default
 ```
 
-ABINIT's configure takes only 20–60 s here, so each configure attempt was a short Slurm job, and its logs were archived before the next attempt.
-
-## 4.2 Minimal extra arguments needed by `fix_hdf5`
-
-| Toolchain | Extra arguments | Configure attempts |
-|---|---|---|
-| `eb_intel` | none | 1 |
-| `eb_foss` | `--with-linalg-flavor=easybuild+elpa` | 2 |
-| `cray_gnu` | `CC=cc CXX=CC FC=ftn LINALG_LIBS="-lsci_gnu_mpi -lsci_gnu"` | 3 (+1 experiment) |
-| `cray_cray` | `CC=cc CXX=CC FC=ftn LINALG_LIBS="-lsci_cray_mpi -lsci_cray"` | 3 |
-| `cray_intel` | `CC=cc CXX=CC FC=ftn LINALG_LIBS="-lsci_intel_mpi -lsci_intel"` | 3 |
-| `cray_aocc` | as `cray_*`, plus `FCFLAGS="-g -Mextend -Qunused-arguments -I$FB/elpa/default/include/elpa-2025.01.001/modules"`, plus 3 source fixes | 5 |
-
-Why each argument was needed:
-
-**`CC=cc CXX=CC FC=ftn` (Cray).** Without them, ABINIT searches `PATH` for `mpiicx mpiicc mpicc`, `mpiicpx mpiicpc mpic++ mpicxx` and `mpiifx mpiifort mpifort mpif90 mpif95` (`config/m4/sd_arch_mpi.m4`). In every PrgEnv it therefore picks cray-mpich's own `mpicc`/`mpic++`/`mpifort`, not the craype wrappers. Those wrappers do not link LibSci and do not add the `craype-x86-milan` target options, with these consequences:
-
-- `cray_gnu`: links the **system** `/usr/lib64/libopenblas.so` (RHEL's OpenBLAS 0.3.15), and LAPACK is still not found;
-- `cray_cray`: only the `netlib` flavor is tried, `-lblas` does not exist, and there is no linear algebra at all;
-- `cray_intel`: MKL is selected (`-qmkl=cluster`) instead of LibSci: for Intel compilers ABINIT always tries MKL first, and PrgEnv-intel ships one;
-- `cray_aocc`: configure stops at the Fortran checks (see below).
-
-**`LINALG_LIBS="-lsci_<x>_mpi -lsci_<x>"` (Cray).** ABINIT had no LibSci flavor: an unknown name fails with `no library settings for linear algebra flavor`. Even with the wrappers, its auto-detection still picks system OpenBLAS (gnu), finds nothing (cray, aocc) or uses MKL (intel). Setting any `LINALG_*` variable switches ABINIT to "verify only" mode, and `--with-elpa` keeps working in that mode.
-
-`LINALG_LIBS` alone is not enough. I checked this on `cray_gnu`: without the wrappers, cray-mpich's `mpifort` cannot find LibSci at all:
-
-```
-ld: cannot find -lsci_gnu_mpi: No such file or directory
-```
-
-**`--with-linalg-flavor=easybuild+elpa` (eb_foss).** The automatic detection finds EasyBuild's OpenBLAS (through pkg-config) but no ScaLAPACK. Its MPI flavor `netlib` hard-codes `-lblacs -lblacsCinit -lblacsF77init`, which ScaLAPACK 2.2.2 does not have. The `easybuild` flavor uses `-lopenblas -lscalapack`. `+elpa` is needed because an explicit flavor no longer adds the ELPA check by itself (`sd_math_linalg.m4`).
-
-**`FCFLAGS=...` (AOCC).** There are two problems:
-
-- AOCC's `ftn --version` prints `AMD clang version 16.0.3 (CLANG: AOCC_4.1.0...)`. That matches ABINIT's LLVM-flang test, which runs before its AOCC test, so ABINIT applies the new-flang hints `-ffixed-line-length=132 -Qunused-arguments`. Classic flang rejects the first one (`clang-16: error: unknown argument: '-ffixed-line-length=132'`), and configure stops with "cannot compile a simple Fortran program". `-Mextend` is the classic-flang equivalent.
-- Classic flang needs module files that are only used *indirectly* (`elpa_api.mod`), but ABINIT passes the ELPA module directory only to the directories that use linear algebra directly. Hence the extra `-I`.
-
-The intended override, `FCFLAGS_HINTS`, does not work. `configure.ac` applies the user's value (`ABI_ENV_RECALL`, line 136) *before* computing the vendor hints (`ABI_FC_HINTS`, line 403), which overwrite it. So the full `FCFLAGS` had to be given.
-
-## 4.3 AOCC 4.1: three source-level problems
-
-Even with the right flags, `make` stopped in ABINIT's own sources:
-
-| File | Problem |
-|---|---|
-| `shared/libpaw/src/m_paw_atom_solve.F90:7507` | `type(logical)` (Fortran 2008 `TYPE(intrinsic-type)`) is not supported by classic flang: `F90-S-0155-Derived type has not been declared - logical` |
-| `src/62_ctqmc/m_CtqmcInterface.F90:148` | Bug in flang's integrated preprocessor: the nested macro `MALLOC` → `ABI_MALLOC` comes out as `C(this%Hybrid_chains,(this%num_chains))` |
-| `src/48_diago/m_chebfi2.F90:1386,1663,2029` | Same preprocessor bug inside `ABI_MALLOC_IFNOT` |
-
-The preprocessor bug depends on the data: the same macros expand correctly in hundreds of other places, and in small test files. The fixes are equivalent rewrites (commit `0d793ca5da`):
-
-```patch
---- a/shared/libpaw/src/m_paw_atom_solve.F90
-+++ b/shared/libpaw/src/m_paw_atom_solve.F90
-@@ -7504,7 +7504,7 @@
- SUBROUTINE setcoretail(Grid,coreden,PAW,needvtau)
-- type(logical),intent(in) :: needvtau
-+ logical,intent(in) :: needvtau
-  TYPE(GridInfo), INTENT(IN) :: Grid
---- a/src/62_ctqmc/m_CtqmcInterface.F90
-+++ b/src/62_ctqmc/m_CtqmcInterface.F90
-@@ -145,7 +145,7 @@
-   this%num_chains = num_chains
--  MALLOC(this%Hybrid_chains, (this%num_chains))
-+  ABI_MALLOC(this%Hybrid_chains, (this%num_chains))
-   this%Hybrid => this%Hybrid_chains(1)
---- a/src/48_diago/m_chebfi2.F90
-+++ b/src/48_diago/m_chebfi2.F90
-@@ -1383,7 +1383,7 @@
--    ABI_MALLOC_IFNOT(nrowsLinalg,(num_proc))
-+    if (.not. allocated(nrowsLinalg)) then; ABI_MALLOC(nrowsLinalg,(num_proc)); endif
-     nrowsLinalg_ptr => nrowsLinalg
-(same change at lines 1660 and 2026)
-```
-
-# 5. Branch `cray_autodetect`: no extra arguments on Cray, with BigDFT
-
-## 5.1 Changes to ABINIT's build system
-
-Commit `41f1b841a2` makes configure do what the arguments of section 4.2 did:
-
-- **Cray PE compilers** (`config/m4/arch-mpi.m4`). When `CRAYPE_VERSION` and `PE_ENV` are set and `cc`/`CC`/`ftn` exist, configure uses the craype wrappers unless `CC`/`CXX`/`FC` are given:
-
-  ```
-  checking for a Cray Programming Environment... yes (PrgEnv: GNU)
-  configure: using the Cray compiler wrappers: CC=cc CXX=CC FC=ftn
-  ```
-
-- **`libsci` linear-algebra flavor** (`sd_math_linalg*.m4`), tried first on a Cray PE.
-  - With the wrappers, no library has to be named: BLAS, LAPACK, BLACS and ScaLAPACK are all "none required".
-  - With other compilers (e.g. `FC=mpifort`), the `libsci_<PrgEnv>` and `libsci_<PrgEnv>_mpi` libraries are linked explicitly, but only when they match the compiler in use.
-- **AOCC** (`lang-fortran.m4`, `configure.ac`). AOCC flang is still treated as LLVM, because it needs the LLVM settings. But:
-  - `-ffixed-line-length=132` becomes `-Mextend` in its Fortran hints;
-  - the linear-algebra Fortran flags (the ELPA modules) are added to `FCFLAGS` for every directory.
-- **BigDFT link order** (`sd_bigdft.m4`). `libyaml.a` is now passed as `-Wl,<path>/libyaml.a`. The Cray `ftn` driver moves plain file arguments in front of all `-l` options. That put `libyaml.a` *before* `libbigdft-1.a`, so with CCE every BigDFT link failed with `undefined reference to yaml_parser_initialize`.
-
-Commit `892bc37de3` fixes a real bug that only CCE detected. `m_mklocl_realspace.F90` called BigDFT's `PSolver` with the integer `0` where the interface expects a `type(xc_info)` (`ftn-1279`). The other compilers accepted it, so `PSolver` read an integer as an `xc_info` object. It now passes an object initialised with `xc_init(xc, 0, XC_ABINIT, 1)`.
-
-## 5.2 Configure arguments now
-
-All six toolchains use the library paths of section 4.1, plus `--with-bigdft=$FB/bigdft/default`. Beyond that:
+Beyond that:
 
 | Toolchain | Extra arguments |
 |---|---|
-| `cray_cray`, `cray_gnu`, `cray_intel`, `cray_aocc` | **none** (FFTW3 included, see 5.5) |
+| `cray_cray`, `cray_gnu`, `cray_intel`, `cray_aocc` | **none** (FFTW3 included, see 5.3) |
 | `eb_intel` | none |
-| `eb_foss` | `--with-linalg-flavor=easybuild+elpa` (as before) |
+| `eb_foss` | `--with-linalg-flavor=easybuild+elpa` |
 
-## 5.3 What "OK" means
+**`--with-linalg-flavor=easybuild+elpa` (eb_foss).** The automatic detection finds EasyBuild's OpenBLAS (through pkg-config) but no ScaLAPACK. Its MPI flavor `netlib` hard-codes `-lblacs -lblacsCinit -lblacsF77init`, which ScaLAPACK 2.2.2 does not have. The `easybuild` flavor uses `-lopenblas -lscalapack`. `+elpa` is needed because an explicit flavor no longer adds the ELPA check by itself (`sd_math_linalg.m4`).
+
+ABINIT's configure takes only 20–60 s here, so each configure attempt was a short Slurm job, and its logs were archived before the next attempt.
+
+# 5. Results
+
+## 5.1 What "OK" means
 
 Every build ends with a `check.sh` that verifies:
 
@@ -305,7 +141,7 @@ Every build ends with a `check.sh` that verifies:
    - `abinit -b` lists `HAVE_FFTW3`;
    - `ldd abinit` resolves `libfftw3*` to a `cray-fftw` file.
 
-## 5.4 Results
+## 5.2 Results
 
 All six builds pass every check (`RESULT: OK`). They used `make -j 64` on one debug node:
 
@@ -318,11 +154,11 @@ All six builds pass every check (`RESULT: OK`). They used `make -j 64` on one de
 | `eb_intel` | `elpa+mkl` / MKL 2025.1 (`libmkl_scalapack_lp64`, `libmkl_blacs_intelmpi_lp64`, …) | DFTI | 9.5 min |
 | `eb_foss` | `easybuild+elpa` / OpenBLAS 0.3.29, ScaLAPACK 2.2.2, FlexiBLAS 3.4.5 | FFTW3 (EasyBuild FFTW 3.3.10, found with pkg-config) | 9.1 min |
 
-All times are clean builds. The four Cray builds are clean builds of the final source, with `cray-fftw`. For the two EasyBuild toolchains, the `PSolver` fix (one file) came after their clean build, so they were brought up to date with an incremental `make`, after which `check.sh` passes again.
+All times are clean builds. The four Cray builds are clean builds of commit `892bc37de3`, with `cray-fftw`. For the two EasyBuild toolchains, the `PSolver` fix (one file) came after their clean build, so they were brought up to date with an incremental `make`, after which `check.sh` passes again.
 
-## 5.5 FFTW on Cray: `cray-fftw`
+## 5.3 FFTW on Cray: `cray-fftw`
 
-Before `cray-fftw` was added to the Cray `env.sh`, configure already tried FFTW3 first, with `-lfftw3_mpi -lfftw3`. The test failed (`cannot find -lfftw3_mpi`), so ABINIT fell back to its internal Goedecker FFT. Loading the module was enough to change that, with no change to ABINIT and no configure argument:
+Without the module, configure's FFTW3 test fails (`cannot find -lfftw3_mpi`) and ABINIT falls back to its internal Goedecker FFT. Loading `cray-fftw` is enough, with no change to ABINIT and no configure argument:
 
 - `cray-fftw` adds its `fftw3.pc` to `PKG_CONFIG_PATH`, and ABINIT's FFTW3 macro (`sd_fftw3.m4`) uses pkg-config when it is available:
 
@@ -364,7 +200,7 @@ env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
 source /etc/profile
 module --force purge
 module load Cray/24.07 PrgEnv-gnu/8.4.0 cray-fftw/3.3.10.8
-FB=~/program/abinit-fallbacks/_build_cray_gnu      # the fallbacks built in step 1
+FB=~/program/abinit-fallbacks/_build_cray_gnu      # the fallbacks of this toolchain
 
 ../configure \
   --with-hdf5=$FB/hdf5/default --with-netcdf=$FB/netcdf4/default \
@@ -378,10 +214,9 @@ src/98_main/abinit -b      # check the CPP options
 
 # 8. Open points
 
+- **Rebuild from the rebased branch** on the six toolchains.
 - **eb_foss** still needs `--with-linalg-flavor=easybuild+elpa`. ABINIT's own detection could look for BLACS inside `libscalapack`, as the fallbacks do.
-- **`FCFLAGS_HINTS`** still cannot override the vendor hints (the order problem of section 4.2).
-- **Upstream reports.**
-  - AOCC flang's preprocessor bug.
-  - The three BigDFT 1.7.1.33 problems of section 3.3.
-- **FFTW variant at run time on Cray.** By default the loader picks the `x86_rome` build of `cray-fftw` (section 5.5). It would be cleaner to embed the module's library path in the binary, for example by linking with `CRAY_ADD_RPATH=yes`. That has not been tried yet.
+- **`FCFLAGS_HINTS`** cannot override the vendor hints. `configure.ac` applies the user's value (`ABI_ENV_RECALL`, line 136) *before* computing the vendor hints (`ABI_FC_HINTS`, line 403), which overwrite it. With the AOCC changes of section 3.2, Lucia no longer needs it.
+- **Upstream report** of AOCC flang's preprocessor bug.
+- **FFTW variant at run time on Cray.** By default the loader picks the `x86_rome` build of `cray-fftw` (section 5.3). It would be cleaner to embed the module's library path in the binary, for example by linking with `CRAY_ADD_RPATH=yes`. That has not been tried yet.
 - **FFTW3 threads.** OpenMP is off in these builds, so ABINIT uses `fftw3`, not `fftw3-threads`, although `cray-fftw` provides the threaded libraries.
