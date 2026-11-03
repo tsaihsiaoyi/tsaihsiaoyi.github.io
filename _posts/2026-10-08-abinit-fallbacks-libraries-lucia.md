@@ -10,13 +10,17 @@ published: true
 
 # abinit-fallbacks on Lucia (six toolchains)
 
-> **Status, 2026-11-02.** abinit-fallbacks builds all the external libraries of ABINIT from source, as static libraries, on the six toolchains of Lucia. The current `my_develop` was also tested on a workstation with three EasyBuild 2025b toolchains: with no configure argument, it uses the libraries EasyBuild provides and builds only the missing ones (section 8). ABINIT itself, built against these libraries, is described in [ABINIT on Lucia (six toolchains)](/post/abinit-fallbacks-lucia.html).
+> **Status, 2026-11-03.** abinit-fallbacks builds all the external libraries of ABINIT from source, as static libraries, on the six toolchains of Lucia. The current `my_develop` was also tested on a workstation with three EasyBuild 2025b toolchains: with no configure argument, it uses the libraries EasyBuild provides and builds only the missing ones (section 8). This also works with only part of a toolchain loaded (section 8.3). Without pkg-config, only the linear algebra is taken from the environment (section 8.4). ABINIT itself, built against these libraries, is described in [ABINIT on Lucia (six toolchains)](/post/abinit-fallbacks-lucia.html).
 
 Versions:
 
 - abinit-fallbacks, fork [tsaihsiaoyi/abinit-fallbacks](https://github.com/tsaihsiaoyi/abinit-fallbacks):
   - Lucia (sections 1–7): built and checked at commit `6266085` (branch `bigdft_xc_fix`, three commits on top of `my_develop` at `3ddec17`), now merged into `my_develop`;
-  - `my_develop` has moved on since. In particular, commit `2a4a80a` switches to BigDFT abinit-1.7.1.34, which fixes problems 1 and 2 of section 5 upstream, and commits `21ca1b3`…`b6aa2ef` use the packages already available in the build environment and fix the problems found on the workstation (section 8.5). These later commits have not been built on Lucia;
+  - `my_develop` has moved on since:
+    - commit `2a4a80a` switches to BigDFT abinit-1.7.1.34, which fixes problems 1 and 2 of section 5 upstream;
+    - commits `7d05c90`…`b6aa2ef` detect the linear algebra of EasyBuild toolchains, use the packages already available in the build environment, and fix the problems found on the workstation (section 8.5).
+
+    These later commits have not been built on Lucia;
   - workstation (section 8): `my_develop` at `b6aa2ef`.
 - Machines:
   - Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11;
@@ -187,7 +191,7 @@ make && make install
 
 - **Compilers:** the MPI wrappers, `mpicc`/`mpicxx`/`mpif90` for `foss` (GNU 14.3) and `lfoss` (LLVM 20.1), `mpiicx`/`mpiicpx`/`mpiifx` for `intel`.
 - **Linear algebra:** `flexiblas+scalapack_pkg` (`-lscalapack -lflexiblas`) for `foss` and `lfoss`, `mkl` (`-qmkl=cluster`) for `intel`. The internal LINALG fallback is never built.
-- **External packages:** each one is looked for with pkg-config (`hdf5_hl`, `libxc`, `elpa`, `netcdf`, `netcdf-fortran`) and used instead of the fallback when it works with the current compilers. The summary of configure marks it with "Install: no".
+- **External packages:** each one is looked for with pkg-config (`hdf5_hl`, `libxc`, `elpa`, `netcdf`, `netcdf-fortran`) and used instead of the fallback when it works with the current compilers. In the summary table printed by configure, its `Install` column is then `no`.
 
 | Build | Built by the fallbacks | Taken from EasyBuild | Time |
 |---|---|---|---|
@@ -272,7 +276,10 @@ All are fixed in `my_develop`:
 - **Packages already available** (`ee852b4`). They were always rebuilt. They are now looked for with pkg-config, which needs two precautions with environment modules:
   - pkgconf drops the `-I`/`-L` flags of the directories listed in `CPATH` and `LIBRARY_PATH`, which modules set, but gfortran does not look for `.mod` files in `CPATH`: pkg-config is run with `PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 PKG_CONFIG_ALLOW_SYSTEM_LIBS=1`;
   - the default search paths of the compilers are not used: they give empty include flags, with which AtomPAW's configure stops and BigDFT silently builds its bundled LibXC 7.1.2.
-- **Linear algebra from EasyBuild variables** (`d6deac6`). FlexiBLAS, OpenBLAS and ScaLAPACK were only found through the `EBROOT*` variables of EasyBuild. They are now looked for with pkg-config, then by library name. `scalapack.pc` requires `mpi.pc` and `blas.pc`, which usually don't exist, and pkgconf 1.8 then fails even on `--variable=libdir`, so only the library directory is read, with `--maximum-traverse-depth=1`.
+- **Linear algebra of EasyBuild toolchains** (`7d05c90`, `d6deac6`).
+  - EasyBuild provides LAPACK inside the BLAS library and BLACS inside ScaLAPACK, with no `liblapack`. The automatic detection only tried `-llapack` after `-lopenblas`, failed before even looking for ScaLAPACK, and built the internal LINALG fallback.
+  - `7d05c90` tried the `easybuild` flavor first, but only when the `EBROOT*` variables of the FlexiBLAS, OpenBLAS or ScaLAPACK modules were set.
+  - `d6deac6` looks for FlexiBLAS, OpenBLAS and ScaLAPACK whatever provides them: with pkg-config, then by library name. `scalapack.pc` requires `mpi.pc` and `blas.pc`, which usually don't exist, and pkgconf 1.8 then fails even on `--variable=libdir`, so only the library directory is read, with `--maximum-traverse-depth=1`.
 - **LLVM compilers alone** (`c2184a5`). configure picked `gcc`/`gfortran`, which come with the GCCcore module that LLVM depends on. flang is now looked for before gfortran, and then clang/clang++ are used for C/C++.
 - **AtomPAW with Flang** (`6d52f18`). AtomPAW reads substrings up to position 256 of a `CHARACTER(200)` line. gfortran and ifx accept it, Flang refuses it: patched.
 - **HDF5 with clang++** (`c2fab56`). HDF5's `config/linux-gnu` matches `clang++` with `*g++*` and greps `GCC` in `clang++ --version`, which matches the `GCCcore` install path twice: the resulting two-line `CXX_VERSION` breaks the Makefiles. Patched.
