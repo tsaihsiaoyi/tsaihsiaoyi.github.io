@@ -1,14 +1,14 @@
 ---
-title: ABINIT on Lucia (six toolchains)
+title: ABINIT build system
 date: '2026-10-08 16:00:00'
-permalink: /post/abinit-fallbacks-lucia.html
+permalink: /post/abinit-build-system.html
 layout: post
 published: true
 ---
 
 
 
-# ABINIT on Lucia (six toolchains)
+# ABINIT build system
 
 > **Status, 2026-11-03.** ABINIT branch `cray_autodetect` builds on all six toolchains of Lucia, including BigDFT and AOCC, and passes every build check. The four Cray toolchains need **no configure argument** besides the library paths, and use FFTW3 from the `cray-fftw` module without any extra argument (section 5.3). Five later commits (section 3.4) let configure find an OpenBLAS + ScaLAPACK stack such as EasyBuild's `foss`, support LLVM Flang 20, and accept an HDF5 built with CMake. They were tested on a workstation with three EasyBuild 2025b toolchains, with the libraries taken from the fallbacks, from EasyBuild, or from both: none of the seven builds needs an argument besides the paths of the libraries built by the fallbacks (section 6). On Lucia, the six toolchains were checked at `6cd90d43b2` with a configure smoke test (section 5.4): configure succeeds and `config.h` defines every required macro, and `eb_foss` no longer needs any argument either. The test suite was not part of this work; each workstation build only ran four smoke tests.
 
@@ -23,7 +23,7 @@ Versions:
   - Lucia: abinit-fallbacks commit `6266085`, one static installation per toolchain (`$FB` below);
   - workstation: abinit-fallbacks `b6aa2ef` (`my_develop`), and EasyBuild modules.
 
-  Packages, versions and build: see [abinit-fallbacks on Lucia (six toolchains)](/post/abinit-fallbacks-libraries-lucia.html).
+  Packages, versions and build: see [abinit-fallbacks build system](/post/abinit-fallbacks-build-system.html).
 - Machines:
   - Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11;
   - a workstation with an Intel Core Ultra 7 265 (20 cores), 30 GB of memory, Ubuntu 24.04.5.
