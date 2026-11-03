@@ -13,13 +13,16 @@ published: true
 > **Status, 2026-11-03.** This report describes ABINIT branch `cray_autodetect` at commit `6cd90d43b2`, eight commits on top of upstream develop (section 3). Besides the paths of the external libraries, configure needs no argument on any of the toolchains tested: it finds the compilers, MPI, linear algebra and FFT by itself.
 >
 > - Workstation, three EasyBuild 2025b toolchains, with the libraries from the fallbacks, from EasyBuild or from both: all seven builds succeed and pass four smoke tests (section 6).
-> - Lucia, six toolchains (four Cray PE, two EasyBuild 2025a): configure succeeds and `config.h` defines every required macro (section 5). The full builds and the run-time tests remain to be done: section 7 lists them.
+> - Lucia, six toolchains (four Cray PE, two EasyBuild 2025a), with the fallbacks at `b6aa2ef`: all six builds succeed and pass every check of `check.sh` (section 5.3).
+>   - Of the seven run-time smoke tests, all pass with GCC and with Intel, both on the Cray PE and with EasyBuild.
+>   - CCE gives two small numerical differences beyond the tolerances.
+>   - AOCC crashes in every calculation with `useylm 1`, PAW included (section 5.4).
 
 Versions:
 
 - ABINIT 10.9.3 (development), branch `cray_autodetect`, commit `6cd90d43b2`: the eight commits of section 3 on top of upstream develop `a0d07ec4c5`.
 - External libraries:
-  - Lucia: abinit-fallbacks, one static installation per toolchain (`$FB` below). Commit `6266085` for the configure test of section 5, `b6aa2ef` for the tests of section 7;
+  - Lucia: abinit-fallbacks `b6aa2ef` (`my_develop`), one static installation per toolchain (`$FB` below);
   - workstation: abinit-fallbacks `b6aa2ef` (`my_develop`), and EasyBuild modules.
 
   Packages, versions and build: see [abinit-fallbacks build system](/post/abinit-fallbacks-build-system.html).
@@ -113,7 +116,7 @@ Commit `15456e01e3` fixes a real bug that only CCE detected. `m_mklocl_realspace
 Five commits, each found with a failing build on the workstation (section 6):
 
 - **LAPACK in OpenBLAS** (`7f3fa29eb3`, `sd_math_linalg_core.m4`). With OpenBLAS, LAPACK was always looked for as `-llapack`. OpenBLAS usually includes LAPACK, and EasyBuild installs no `liblapack`, so the serial detection failed; where a system `liblapack` exists, that reference LAPACK would be linked instead. OpenBLAS's own LAPACK is now used when present, and `-llapack` only when it is missing. This is limited to the `openblas` flavors, because IBM ESSL has routines with LAPACK names but other arguments.
-- **BLACS in ScaLAPACK** (same commit). The `netlib` flavor looked for BLACS only as `-lblacs -lblacsCinit -lblacsF77init`, the layout of ScaLAPACK 1.x. ScaLAPACK ≥ 2.0 includes BLACS. When these libraries do not work, BLACS is now looked for in the ScaLAPACK libraries. Before, they also stayed in `LIBS` after the failed check, so the ScaLAPACK check failed as well. With these two changes, an OpenBLAS + ScaLAPACK stack such as EasyBuild's `foss` needs no `--with-linalg-flavor` (sections 5.2 and 6).
+- **BLACS in ScaLAPACK** (same commit). The `netlib` flavor looked for BLACS only as `-lblacs -lblacsCinit -lblacsF77init`, the layout of ScaLAPACK 1.x. ScaLAPACK ≥ 2.0 includes BLACS. When these libraries do not work, BLACS is now looked for in the ScaLAPACK libraries. Before, they also stayed in `LIBS` after the failed check, so the ScaLAPACK check failed as well. With these two changes, an OpenBLAS + ScaLAPACK stack such as EasyBuild's `foss` needs no `--with-linalg-flavor` (sections 5.3 and 6).
 - **LLVM optimization flags** (`77acf5425e`, `config/optim/*_llvm_default-optim.conf`). The standard flags were `-mtune=native -mcpu=native`, which clang and flang only accept on AArch64. On x86_64, LLVM 20 stops with `unsupported option '-mcpu='`, and configure fails at its first link test ("linking to Fortran libraries from C fails"). The LLVM compilers now get `-march=native`, as GNU does, and AArch64 keeps the previous flags. AOCC uses these flags too, so `cray_aocc` gets `-O2 -march=native`.
 - **Linear algebra with LLVM Flang** (`a84e3a012d`, `sd_math_linalg.m4`). The automatic detection only had sequences for the GNU and Intel Fortran compilers. With LLVM Flang, only `netlib` (`-lblas`) was tried, so OpenBLAS was never found. configure only warned, and the link of the executables failed. OpenBLAS (directly and with pkg-config) and ATLAS are now tried first, as for GNU, but not MKL, which only supports the GNU and Intel compilers.
 - **ELPA modules with LLVM Flang** (`f7fb136e1c`, `configure.ac`). Like classic flang, LLVM Flang needs the module files used indirectly: `src/41_geometry/m_supercell.F90` failed with `Cannot parse module file for module 'elpa'`. The linear-algebra Fortran flags now go to every directory with any LLVM Fortran compiler, not only AOCC.
@@ -138,49 +141,150 @@ The same command for every toolchain of Lucia. It contains only the libraries to
 
 No toolchain needs another argument:
 
-- the four Cray toolchains get LibSci through the craype wrappers (section 3.1), and FFTW3 from the `cray-fftw` module (section 5.3);
+- the four Cray toolchains get LibSci through the craype wrappers (section 3.1), and FFTW3 from the `cray-fftw` module (section 5.5);
 - `eb_intel` gets MKL, with its DFTI FFT;
 - `eb_foss` gets OpenBLAS with ScaLAPACK (section 3.4), and EasyBuild's FFTW3 through pkg-config.
 
 # 5. Results on Lucia
 
-## 5.1 What `check.sh` verifies
+On 2026-11-03, the six toolchains were built and tested with commit `6cd90d43b2` and the fallbacks at `b6aa2ef`: full builds (T1), a few run-time smoke tests (T2), and the FFTW library loaded at run time on Cray (T3). This is not a run of the test suite.
+
+## 5.1 How the tests were run
+
+The rules of section 1 apply: clean environment, no argument besides the library paths, heavy work in Slurm jobs on the debug partition.
+
+- **Source tree** (`$ABI` below): branch `cray_autodetect` at `6cd90d43b2`, with a clean `git status`.
+  - The build system was regenerated once, before the builds, with `config/scripts/makemake`. Then `aclocal.m4`, `config.h.in`, `configure` and the `Makefile.in` files were touched in that order (section 7).
+  - No `git pull` was done during the builds, and no `make` reran the Autotools.
+- **Fallbacks.** `FB=~/program/abinit-fallbacks/_build_<toolchain>`: the six installations of commit `b6aa2ef`. For each of them, the fallbacks' `check.sh` reports `RESULT: OK`.
+- **Build directories.** One new, empty directory per toolchain, `$ABI/_build_<toolchain>`. Each holds `env.sh` (section 2), `build.sh`, `check.sh` (section 5.2) and `tests.sh`.
+- **Python.** The default `python3` of RHEL 8 is 3.6, while `runtests.py` needs Python ≥ 3.10 and `makemake` needs ≥ 3.11.
+  - `runtests.py` is called by the absolute path of a Python 3.12 from a Conda environment in `$HOME`. No Python module is loaded into the toolchain environment.
+  - For `makemake`, a directory with only two links to that interpreter, `python3` and `python`, goes in front of `PATH`. Both are needed because `abisrc.py`, which `makemake` runs, starts with `#!/usr/bin/env python`.
+- **Slurm variables.** `env -i` also removes the `SLURM_*` variables, and without them `srun` inside a job asks for a new allocation. The test jobs therefore save these variables before cleaning the environment, and source them again after `env.sh`.
+
+**T1: full builds.** One Slurm job per toolchain, on a whole debug node. In each build directory, `build.sh`:
+
+```bash
+source /etc/profile
+source ./env.sh
+FB=~/program/abinit-fallbacks/_build_<toolchain>
+../configure \
+  --with-hdf5=$FB/hdf5/default --with-netcdf=$FB/netcdf4/default \
+  --with-netcdf-fortran=$FB/netcdf4_fortran/default --with-libxc=$FB/libxc/default \
+  --with-elpa=$FB/elpa/default --with-wannier90=$FB/wannier90/default \
+  --with-xmlf90=$FB/xmlf90/default --with-libpsml=$FB/libpsml/default \
+  --with-bigdft=$FB/bigdft/default > configure.out 2>&1 || exit 1
+make -j 64 > make.out 2>&1
+echo "make exit status: $?" >> make.out
+./check.sh > check.out 2>&1
+```
+
+and the job script:
+
+```bash
+#!/bin/bash
+#SBATCH --partition=debug
+#SBATCH --nodes=1
+#SBATCH --exclusive
+cd $ABI/_build_<toolchain>
+env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
+    bash --noprofile --norc ./build.sh
+```
+
+**T2: smoke tests.** After T1, one Slurm job per toolchain with 4 tasks:
+
+| Test | MPI processes | Exercises |
+|---|---|---|
+| `v1:01` | 1 | a plane-wave ground state, with the FFT of the build (FFTW3, or DFTI on `eb_intel`) |
+| `libxc:01` | 1 | LibXC |
+| `bigdft:00` | 1 | BigDFT's Poisson solver (`icoulomb 1`, GTH pseudopotential), through `createIonicPotential_new`, whose `PSolver` call is fixed by `15456e01e3` |
+| `wannier90:00` | 1 | Wannier90 (`prtwant 2`) |
+| `psml:05` | 1 | libPSML and XMLF90 (reads `14_Si_oncv.psml`) |
+| `paral:24` | 4 | `paral_kgb 1` with `use_slk 1`: BLACS, ScaLAPACK and ELPA, which the distributed eigensolver of `m_slk` uses when available. It would stop in `FAKE BLACS_GRIDINIT` if the ScaLAPACK stubs of BigDFT were linked (fallbacks report, section 4) |
+| `mpiio:22` | 4 | MPI-IO with `paral_kgb 1` |
+
+In each build directory, `tests.sh`:
+
+```bash
+source /etc/profile
+source ./env.sh
+source ./slurm_env.sh                # the SLURM_* variables of the job
+PY=<absolute path of a Python >= 3.10>
+MPI_ARGS=--mpi=cray_shasta           # eb_intel: --mpi=pmi2, eb_foss: --mpi=pmix (section 7)
+export LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH:$LD_LIBRARY_PATH   # Cray only: Milan FFTW (section 5.5)
+export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi2.so                   # eb_intel only
+$PY ../tests/runtests.py -b . -w tests_seq -q --use-srun --mpi-args="$MPI_ARGS" \
+    v1:01 libxc:01 bigdft:00 wannier90:00 psml:05
+$PY ../tests/runtests.py -b . -w tests_mpi -q --use-srun --mpi-args="$MPI_ARGS" -n 4 \
+    paral:24 mpiio:22
+```
+
+and the job script:
+
+```bash
+#!/bin/bash
+#SBATCH --partition=debug
+#SBATCH --nodes=1
+#SBATCH --ntasks=4
+cd $ABI/_build_<toolchain>
+export -p | grep '^declare -x SLURM_' > slurm_env.sh
+env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
+    bash --noprofile --norc ./tests.sh
+```
+
+With `--use-srun`, the serial tests also run with `srun -n 1`. A test counts as passed when `tests_seq/results.json` or `tests_mpi/results.json` gives `succeeded` or `passed`. A `skipped` test would mean that a CPP option is missing, so it counts as a failure.
+
+**T3: FFTW at run time on Cray.** This runs in the same job as T2, after `tests.sh`, on the four Cray builds:
+
+- `ldd src/98_main/abinit | grep fftw`, with and without the `LD_LIBRARY_PATH` line of `tests.sh`;
+- `v1:01` and `paral:24` again, without that line, in other work directories (`tests_rome_seq`, `tests_rome_mpi`).
+
+A fifth build, `_build_cray_gnu_rpath`, is `cray_gnu` with `export CRAY_ADD_RPATH=yes` before configure. Its test job runs `v1:01` without `LD_LIBRARY_PATH`.
+
+## 5.2 What `check.sh` verifies
 
 Every build ends with a `check.sh` that verifies:
 
 1. No `.ac9` configuration file was read: `not loading options (no config file available)` in `config.log`.
-2. The compilers are the expected ones: `cc`/`CC`/`ftn` on Cray, the Intel or OpenMPI wrappers on EasyBuild.
-3. MPI works for C, C++ and Fortran, and MPI-IO is enabled.
+2. The compilers are the expected ones: `cc`/`CC`/`ftn` on Cray, the Intel or OpenMPI wrappers on EasyBuild, and the first line of `--version` gives the expected compiler.
+3. MPI works for C, C++ and Fortran, and MPI-IO is enabled. The result of the MPI-IO test is read from `abi_mpi_io_enable` and from the configure summary (`MPI-IO enabled : yes`). The line `checking whether to build MPI I/O code...` cannot be used: it prints the value of the option (`auto`), not the result.
 4. The math library is the cluster's:
    - linear algebra, ScaLAPACK and ELPA are all `yes`;
    - `ldd abinit` shows `libsci_<x>(_mpi)` on Cray, MKL on `eb_intel`, and EasyBuild OpenBLAS/FlexiBLAS + ScaLAPACK on `eb_foss`;
    - never `/usr/lib64/libopenblas*`.
-5. Every `-I`/`-L` of HDF5, netCDF, LibXC, ELPA, Wannier90, XMLF90, libPSML and BigDFT points into `$FB`, and none of them (nor `libyaml`) appears as a shared library in `ldd abinit`.
-6. `abinit -b` lists `HAVE_MPI HAVE_MPI_IO HAVE_HDF5_MPI HAVE_NETCDF_MPI HAVE_NETCDF_FORTRAN_MPI HAVE_LIBXC HAVE_LINALG_SCALAPACK HAVE_LINALG_ELPA HAVE_WANNIER90 HAVE_LIBPSML HAVE_XMLF90 HAVE_BIGDFT`.
+5. Every `-I`/`-L` of HDF5, netCDF, LibXC, ELPA, Wannier90, XMLF90, libPSML and BigDFT points into `$FB`. None of them, nor `libyaml`, appears as a shared library in `ldd abinit`.
+6. `config.h` defines `HAVE_HDF5 HAVE_NETCDF HAVE_NETCDF_FORTRAN`, and both `config.h` and `abinit -b` list `HAVE_MPI HAVE_MPI_IO HAVE_HDF5_MPI HAVE_NETCDF_MPI HAVE_NETCDF_FORTRAN_MPI HAVE_LIBXC HAVE_LINALG_SCALAPACK HAVE_LINALG_ELPA HAVE_WANNIER90 HAVE_LIBPSML HAVE_XMLF90 HAVE_BIGDFT`.
 7. `make` exits with 0.
 8. On Cray only, FFTW comes from the `cray-fftw` module:
    - the FFT flavor is `fftw3`;
    - the FFTW3 flags point to `$FFTW_ROOT`;
    - `abinit -b` lists `HAVE_FFTW3`;
-   - `ldd abinit` resolves `libfftw3*` to a `cray-fftw` file.
+   - `ldd abinit` resolves `libfftw3*` to a `cray-fftw` file, both without `LD_LIBRARY_PATH` and with `LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH`.
 
-## 5.2 Configure test
+It also checks the points specific to each toolchain (section 5.3), and prints the linear algebra and FFT flavors and the `ldd` lines of both libraries.
 
-On 2026-11-02 the six toolchains were checked with commit `6cd90d43b2`, against the fallbacks at `6266085`. This test stops after configure:
+## 5.3 T1: full builds
 
-- configure runs with the command of section 4, with no other argument for any toolchain;
-- checks 1–5 and 8 of section 5.1 are done on the configure results: no `.ac9` file, the compilers, MPI and MPI-IO, linear algebra with ScaLAPACK and ELPA, every library path in `$FB`, and FFTW from `cray-fftw` on Cray;
-- `config.h` defines `HAVE_MPI HAVE_MPI_IO HAVE_HDF5 HAVE_HDF5_MPI HAVE_NETCDF HAVE_NETCDF_MPI HAVE_NETCDF_FORTRAN HAVE_NETCDF_FORTRAN_MPI HAVE_LIBXC HAVE_LINALG_SCALAPACK HAVE_LINALG_ELPA HAVE_WANNIER90 HAVE_LIBPSML HAVE_XMLF90 HAVE_BIGDFT`, plus `HAVE_FFTW3` on Cray.
+All six builds succeed, with no configure argument besides the library paths of section 4. `check.sh` reports `RESULT: OK` (checks 1–8) on every one:
 
-Without `make`, the configures ran on a login node. All six pass:
+| Toolchain | Compilers found by configure | FC optimization | Build time | Linear algebra | FFT | `ldd abinit`: linear algebra, FFT |
+|---|---|---|---|---|---|---|
+| `cray_cray` | `cc`/`CC`/`ftn`, CCE 18.0.0 | `-O2 -h nofortran_ptr_alias -h nofortran_ptr_overlap -Oipa0` | 32:47 | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_cray(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
+| `cray_gnu` | `cc`/`CC`/`ftn`, GCC 13.3.1 | `-O2 -march=native` | 8:45 | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_gnu(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
+| `cray_intel` | `cc`/`CC`/`ftn`, ifort 2021.7 + icx 2022.2 | `-O3` | 21:14 | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_intel(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
+| `cray_aocc` | `cc`/`CC`/`ftn`, AOCC 4.1 | `-O2 -march=native` | 27:18 | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_aocc(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
+| `eb_intel` | `mpiicx`/`mpiicpx`/`mpiifx`, 2025.1.1 | `-O3` | 10:20 | `elpa+mkl` | DFTI | MKL 2025.1: `libmkl_intel_lp64`, `_sequential`, `_core`, `_scalapack_lp64`, `_blacs_intelmpi_lp64`, `_cdft_core` |
+| `eb_foss` | `mpicc`/`mpic++`/`mpifort`, GCC 14.2.0 | `-O2 -march=native` | 10:06 | `elpa+netlib+openblas` | FFTW3 (EasyBuild) | `libopenblas.so.0` (OpenBLAS 0.3.29), `libscalapack.so.2.2` (ScaLAPACK 2.2.2), `libflexiblas.so.3`, `libfftw3(f).so.3` (FFTW 3.3.10) |
 
-| Toolchain | Extra arguments | Linear algebra (configure) | FFT |
-|---|---|---|---|
-| `cray_cray`, `cray_gnu`, `cray_intel`, `cray_aocc` | none | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` |
-| `eb_intel` | none | `elpa+mkl` | DFTI |
-| `eb_foss` | none | `elpa+netlib+openblas` | FFTW3 (EasyBuild) |
+The build time is the wall time of the job (configure, `make -j 64` and `check.sh`) on a debug node. On Cray, LibSci and `libfftw3*` come from `/opt/cray/pe/lib64`; section 5.5 shows which FFTW build that gives at run time. In every build, `ldd abinit` lists no library of the fallbacks, which are static, and no `/usr/lib64/libopenblas*`.
 
-- **`eb_foss` without `--with-linalg-flavor`.** BLACS is first looked for as `-lblacs …`, which ScaLAPACK 2.2.2 does not provide, then inside ScaLAPACK (`7f3fa29eb3`). The libraries are `-lelpa -lscalapack -lopenblas -lpthread`:
+- **`cray_aocc`**: the first full build with classic flang and the commits of section 3.4. Every directory compiles.
+  - The optimization flags are `-O2 -march=native` (`77acf5425e`).
+  - `config.log` shows `adding the linear algebra Fortran flags to FCFLAGS for Flang` (`f7fb136e1c`).
+  - LibSci is still tried first: the serial sequence is `libsci openblas atlas netlib openblas_pkg`, with OpenBLAS added for LLVM by `a84e3a012d`.
+- **`cray_cray`**: `make.out` has no `ftn-1279` error (section 3.3), and `abinit` links with BigDFT (`libyaml` order, section 3.1).
+- **`eb_foss`**: `elpa+netlib+openblas` without `--with-linalg-flavor`. BLACS is first looked for as `-lblacs …`, which ScaLAPACK 2.2.2 does not provide, then inside ScaLAPACK (`7f3fa29eb3`). The libraries are `-lelpa -lscalapack -lopenblas -lpthread`, and `libflexiblas` is only loaded by EasyBuild's ScaLAPACK:
 
   ```
   checking for the serial linear algebra detection sequence... openblas atlas netlib openblas_pkg
@@ -190,12 +294,56 @@ Without `make`, the configures ran on a login node. All six pass:
   checking for the actual linear algebra flavor... elpa+netlib+openblas
   ```
 
-- **`cray_aocc` with the LLVM commits.**
-  - LibSci is still tried first. The serial sequence is `libsci openblas atlas netlib openblas_pkg`, with OpenBLAS added for LLVM by `a84e3a012d`.
-  - configure prints `adding the linear algebra Fortran flags to FCFLAGS for Flang` (`f7fb136e1c`).
-  - The optimization flags are `-O2 -march=native` (`77acf5425e`).
+- **`eb_intel`**: configure picks the Intel MPI wrappers of the LLVM-based compilers (`mpiicx`/`mpiicpx`/`mpiifx`). ScaLAPACK and BLACS come from MKL.
 
-## 5.3 FFTW on Cray: `cray-fftw`
+## 5.4 T2: smoke tests
+
+| Test | `cray_cray` | `cray_gnu` | `cray_intel` | `cray_aocc` | `eb_intel` | `eb_foss` |
+|---|---|---|---|---|---|---|
+| `v1:01` | OK | OK | OK | OK | OK | OK |
+| `libxc:01` | OK | OK | OK | OK | OK | OK |
+| `bigdft:00` | OK | OK | OK | OK | OK | OK |
+| `wannier90:00` | **diff** | OK | OK | **crash** | OK | OK |
+| `psml:05` | OK | OK | OK | OK | OK | OK |
+| `paral:24` (4 MPI) | **diff** | OK | OK | **crash** | OK | OK |
+| `mpiio:22` (4 MPI) | OK | OK | OK | **crash** | OK | OK |
+
+OK means `succeeded`, or `passed` within the tolerances (as `bigdft:00` everywhere and `wannier90:00` where it does not fail). No test was skipped, so every CPP option the tests need is present. All seven tests pass with GCC (Cray PE and `foss`) and Intel (Cray PE and EasyBuild).
+
+**AOCC: crash with `useylm 1`.** `wannier90:00`, `paral:24` and `mpiio:22` stop with a segmentation fault (exit status 139) in the first SCF iteration, at the same place:
+
+```
+Caught signal 11 (Segmentation fault: address not mapped to object at address (nil))
+ 1 m_opernla_ylm_opernla_ylm_()  src/66_nonlocal/m_opernla_ylm.F90:0
+ 2 m_nonlop_ylm_nonlop_ylm_()    src/66_nonlocal/m_nonlop_ylm.F90:877
+ 3 m_nonlop_nonlop_()            src/66_nonlocal/m_nonlop.F90:930
+ 4 m_getghc_getghc_()            src/66_wfs/m_getghc.F90:1096
+ 5 m_cgwf_cgwf_()                src/67_common/m_cgwf.F90:550
+```
+
+- The three tests that crash all use `useylm 1`, so the nonlocal operator goes through `nonlop_ylm` and `opernla_ylm`:
+  - `paral:24` and `mpiio:22` are PAW, which implies `useylm 1`;
+  - `wannier90:00` uses norm-conserving pseudopotentials, but sets `useylm 1` explicitly.
+- The four tests that pass use norm-conserving pseudopotentials with the default `useylm 0`, which goes through `nonlop_pl` instead.
+- So the AOCC build cannot run any PAW calculation, nor any calculation with `useylm 1`.
+- The compilation of `m_opernla_ylm.F90` prints no warning, and the crash is the same with the other FFTW build (section 5.5).
+- It has not been investigated further.
+
+The `.fldiff` files, in `$ABI/_build_cray_aocc/`, only report the missing output: `tests_seq/wannier90_t00/t00.abo.fldiff`, `tests_mpi/paral_t24_MPI4/t24_MPI4.abo.fldiff`, `tests_mpi/mpiio_t22_MPI4/t22_MPI4.abo.fldiff`.
+
+**CCE: numerical differences.** Two tests run to the end, with differences slightly beyond their tolerances:
+
+- `paral:24` is a cell relaxation (`ionmov 3`, `optcell 1`, `ntime 3`). The final pressure is 1.4718 GPa against 1.4729 GPa in the reference. That difference, 1.1e-3, is above `tolabs` = 3e-4. The other values differ less:
+  - the total energy, by about 4e-9 Ha;
+  - the primitive vectors, 3.3448631 against 3.3448607 bohr;
+  - `sigma(1 1)`, −5.0027e-5 against −5.0061e-5 Ha/bohr³.
+
+  The fldiff report is `tests_mpi/paral_t24_MPI4/t24_MPI4.abo.fldiff`.
+- `wannier90:00`: 5 lines of the matrix printed for Wannier90 differ. The largest relative difference is −0.007642 against −0.007654, 7.8e-4, above `tolrel` = 4e-4; the absolute difference, 1.4e-5, is within `tolabs`. The fldiff report is `tests_seq/wannier90_t00/t00.abo.fldiff`.
+
+The paths are in `$ABI/_build_cray_cray/`. With GCC and Intel, the same tests stay within these tolerances. The reference files are unchanged.
+
+## 5.5 FFTW on Cray: `cray-fftw`
 
 Without the module, configure's FFTW3 test fails (`cannot find -lfftw3_mpi`) and ABINIT falls back to its internal Goedecker FFT. Loading `cray-fftw` is enough, with no change to ABINIT and no configure argument:
 
@@ -218,7 +366,16 @@ One detail matters at run time. The binary is linked against the Milan build (`x
 export LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH:$LD_LIBRARY_PATH
 ```
 
-`check.sh` prints both resolutions.
+T3 confirms this on the four Cray builds, and both variants give the results of T2:
+
+| Build | `libfftw3*` without `LD_LIBRARY_PATH` | with `LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH` | `v1:01`, `x86_rome` | `paral:24`, `x86_rome` |
+|---|---|---|---|---|
+| `cray_cray` | `x86_rome` | `x86_milan` | OK | **diff** (as in T2) |
+| `cray_gnu` | `x86_rome` | `x86_milan` | OK | OK |
+| `cray_intel` | `x86_rome` | `x86_milan` | OK | OK |
+| `cray_aocc` | `x86_rome` | `x86_milan` | OK | **crash** (as in T2) |
+
+The `cray_gnu` build linked with `CRAY_ADD_RPATH=yes` embeds the module's library path in the binary. Without `LD_LIBRARY_PATH`, `ldd abinit` then resolves every `libfftw3*` to `x86_milan`, `v1:01` passes, and `check.sh` reports `RESULT: OK`.
 
 # 6. Workstation tests: EasyBuild 2025b
 
@@ -253,127 +410,10 @@ In every build, `abinit -b` lists `HAVE_MPI_IO HAVE_HDF5_MPI HAVE_NETCDF_MPI HAV
 - **BLAS through OpenBLAS or FlexiBLAS.** With GNU and LLVM, BLACS and ScaLAPACK come from `-lscalapack` (section 3.4). In `fb` and `partial`, ABINIT links `-lelpa -lscalapack -lopenblas`, so its BLAS calls go to OpenBLAS; FlexiBLAS is only loaded by EasyBuild's ScaLAPACK. In `mix`, the pkg-config flags of EasyBuild's ELPA (`-lelpa -lscalapack -lflexiblas`) come before `-lopenblas`, so the BLAS calls go through FlexiBLAS, whose default backend is the same OpenBLAS.
 - **One HDF5 for the whole I/O stack.** In `foss` partial, the fallbacks build netCDF against EasyBuild's HDF5, and ABINIT links that static netCDF with EasyBuild's shared HDF5 (`6cd90d43b2`).
 
-# 7. Tests to run on Lucia
-
-Section 5 only ran configure with `6cd90d43b2`. The tests below complete the check of this commit on Lucia, for the six toolchains of section 2: full builds (T1), a few run-time smoke tests (T2), and the FFTW library loaded at run time on Cray (T3). They are not a run of the test suite. They follow the rules of section 1: clean environment, no argument besides the library paths, heavy work in Slurm jobs on the debug partition.
-
-## 7.1 Setup
-
-- **ABINIT.** A source tree (`$ABI` below) on branch `cray_autodetect`, with `git rev-parse --short=10 HEAD` giving `6cd90d43b2` and a clean `git status`. If the branch has moved, test its new head and report the commit. Regenerate the build system once, before any build: `config/scripts/makemake` (with `--no-precommit-hooks` if the Git hook is not installed there). No `git pull` until all builds are done (section 8).
-- **Fallbacks.** `FB=~/program/abinit-fallbacks/_build_<toolchain>`: the six installations of commit `b6aa2ef`, for which the fallbacks' `check.sh` reports `RESULT: OK` (see the fallbacks report). Report the commit with the results.
-- **Build directories.** One new, empty directory per toolchain, `$ABI/_build_<toolchain>`: these must be clean builds, so an existing directory is wiped or renamed first. It holds `env.sh` (section 2) and `check.sh` (section 5.1: the `check.sh` already on Lucia does checks 1–8).
-- **Python.** `runtests.py` stops with Python < 3.10, and the default `python3` of RHEL 8 is 3.6. Call a Python ≥ 3.10 by its absolute path (for example from a virtual environment in `$HOME`), without loading a Python module into the toolchain environment.
-- **Slurm variables.** `env -i` also removes the `SLURM_*` variables, without which `srun` inside a job asks for a new allocation. The test jobs save them before cleaning the environment, and source them after `env.sh` (T2).
-
-## 7.2 T1: full builds
-
-One Slurm job per toolchain, on a whole debug node. CCE is the slowest compiler: give `cray_cray` the longest time limit. In each build directory, `build.sh`:
-
-```bash
-source /etc/profile
-source ./env.sh
-FB=~/program/abinit-fallbacks/_build_<toolchain>
-../configure \
-  --with-hdf5=$FB/hdf5/default --with-netcdf=$FB/netcdf4/default \
-  --with-netcdf-fortran=$FB/netcdf4_fortran/default --with-libxc=$FB/libxc/default \
-  --with-elpa=$FB/elpa/default --with-wannier90=$FB/wannier90/default \
-  --with-xmlf90=$FB/xmlf90/default --with-libpsml=$FB/libpsml/default \
-  --with-bigdft=$FB/bigdft/default > configure.out 2>&1 || exit 1
-make -j 64 > make.out 2>&1
-echo "make exit status: $?" >> make.out
-./check.sh > check.out 2>&1
-```
-
-and the job script:
-
-```bash
-#!/bin/bash
-#SBATCH --partition=debug
-#SBATCH --nodes=1
-#SBATCH --exclusive
-cd $ABI/_build_<toolchain>
-env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
-    bash --noprofile --norc ./build.sh
-```
-
-Expected:
-
-- `make` exits with 0, and `check.sh` reports `RESULT: OK` (checks 1–8 of section 5.1);
-- configure selects the linear algebra and FFT of section 5.2;
-- `cray_aocc`: this is the first full build with the commits of section 3.4 and classic flang. `config.log` shows `-march=native` in the optimization flags and `adding the linear algebra Fortran flags to FCFLAGS for Flang`, and every directory compiles;
-- `cray_cray`: no `ftn-1279` error in `make.out` (section 3.3), and `abinit` links with BigDFT (`libyaml` order, section 3.1);
-- `eb_foss`: `elpa+netlib+openblas`, and `ldd abinit` shows EasyBuild's `libopenblas` and `libscalapack`, never `/usr/lib64/libopenblas*`.
-
-Record, for each toolchain, the linear algebra and FFT flavors, and the `ldd abinit` lines of the linear algebra and of FFTW.
-
-## 7.3 T2: smoke tests
-
-After T1, one Slurm job per toolchain with 4 tasks:
-
-| Test | MPI processes | Exercises |
-|---|---|---|
-| `v1:01` | 1 | a plane-wave ground state, with the FFT of the build (FFTW3, or DFTI on `eb_intel`) |
-| `libxc:01` | 1 | LibXC |
-| `bigdft:00` | 1 | BigDFT's Poisson solver (`icoulomb 1`, GTH pseudopotential), through `createIonicPotential_new`, whose `PSolver` call is fixed by `15456e01e3` |
-| `wannier90:00` | 1 | Wannier90 (`prtwant 2`) |
-| `psml:05` | 1 | libPSML and XMLF90 (reads `14_Si_oncv.psml`) |
-| `paral:24` | 4 | `paral_kgb 1` with `use_slk 1`: BLACS, ScaLAPACK and ELPA, which the distributed eigensolver of `m_slk` uses when available. It would stop in `FAKE BLACS_GRIDINIT` if the ScaLAPACK stubs of BigDFT were linked (fallbacks report, section 4) |
-| `mpiio:22` | 4 | MPI-IO with `paral_kgb 1` |
-
-In each build directory, `tests.sh`:
-
-```bash
-source /etc/profile
-source ./env.sh
-source ./slurm_env.sh                # the SLURM_* variables of the job
-PY=<absolute path of a Python >= 3.10>
-MPI_ARGS=--mpi=cray_shasta           # eb_intel: --mpi=pmi2, eb_foss: --mpi=pmix (section 8)
-export LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH:$LD_LIBRARY_PATH   # Cray only: Milan FFTW (section 5.3)
-export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi2.so                   # eb_intel only
-$PY ../tests/runtests.py -b . -w tests_seq -q --use-srun --mpi-args="$MPI_ARGS" \
-    v1:01 libxc:01 bigdft:00 wannier90:00 psml:05
-$PY ../tests/runtests.py -b . -w tests_mpi -q --use-srun --mpi-args="$MPI_ARGS" -n 4 \
-    paral:24 mpiio:22
-```
-
-and the job script:
-
-```bash
-#!/bin/bash
-#SBATCH --partition=debug
-#SBATCH --nodes=1
-#SBATCH --ntasks=4
-cd $ABI/_build_<toolchain>
-export -p | grep '^declare -x SLURM_' > slurm_env.sh
-env -i HOME=$HOME USER=$USER LOGNAME=$LOGNAME TERM=$TERM PATH=/usr/bin:/bin \
-    bash --noprofile --norc ./tests.sh
-```
-
-With `--use-srun`, the serial tests also run with `srun -n 1`. Expected: in `tests_seq/results.json` and `tests_mpi/results.json`, every test is `succeeded` or `passed`. A `skipped` test means that a CPP option is missing (`HAVE_BIGDFT`, for example), so it counts as a failure.
-
-## 7.4 T3: FFTW at run time on Cray
-
-For each of the four Cray builds, after T2:
-
-- `ldd src/98_main/abinit | grep fftw` with and without the `LD_LIBRARY_PATH` line of `tests.sh`: give the directory of each `libfftw3*` (`x86_milan` or `x86_rome`);
-- rerun `v1:01` and `paral:24` without that line, in another work directory (`-w tests_rome`): they must pass too;
-- optional, `cray_gnu` only: a second build directory whose `build.sh` exports `CRAY_ADD_RPATH=yes` before configure. Check that `ldd abinit` gives the `x86_milan` libraries without `LD_LIBRARY_PATH`, and that `v1:01` passes (section 9).
-
-## 7.5 Results to report
-
-For each toolchain:
-
-- the ABINIT and fallbacks commits;
-- whether `make` succeeded and `check.sh` reported `RESULT: OK`, and the failed checks otherwise;
-- the linear algebra and FFT flavors, and the `ldd` lines of T1;
-- the status of each test of T2 and T3.
-
-For a failure, give the first error of `make.out` or of the test log, and the path of the `.fldiff` file. Never update a reference file to make a test pass. These results then replace the configure test of section 5.2, and the tests done leave this section.
-
-# 8. Pitfalls worth knowing
+# 7. Pitfalls worth knowing
 
 - **Automake rebuild rules.** ABINIT's Makefiles have no "maintainer mode". If a file of `config/m4` is newer than `configure`, every `make` reruns aclocal/autoconf/automake *in the shared source tree*, and concurrent builds collide (`autom4te: cannot rename …`).
-  - `aclocal` does not rewrite `aclocal.m4` when only the content of an included m4 file changes. So after `./autogen.sh`, touch `aclocal.m4`, `config.h.in`, `configure` and the `Makefile.in` files, in that order.
+  - `aclocal` does not rewrite `aclocal.m4` when only the content of an included m4 file changes. So after `./autogen.sh` or `makemake`, touch `aclocal.m4`, `config.h.in`, `configure` and the `Makefile.in` files, in that order.
 - **No `git pull` while builds run.** All the build directories share one source tree:
   - a running `make` that sees a newer `configure.ac` reruns `aclocal` and `autoconf` in the source tree, then `config.status --recheck`, i.e. configure again in the middle of the build. The binary then mixes objects compiled with two different `config.h`;
   - a build that is in configure when `configure` is rewritten stops with `syntax error near unexpected token`.
@@ -383,11 +423,17 @@ For a failure, give the first error of `make.out` or of the test log, and the pa
   - Cray MPICH: `srun --mpi=cray_shasta`;
   - Intel MPI: `srun --mpi=pmi2` with `I_MPI_PMI_LIBRARY=/usr/lib64/libpmi2.so`;
   - OpenMPI 5: `srun --mpi=pmix`.
+- **Python in a clean environment.** The only Python of the clean environment is the `python3` 3.6 of RHEL 8, and there is no `python` at all.
+  - `makemake` needs Python ≥ 3.11.
+  - `makemake` runs `abisrc.py`, which starts with `#!/usr/bin/env python`. Without a `python` in `PATH`, `makemake` stops with `The abisrc.py script returned a non-zero exit status`, and `abisrc.stderr` contains `/usr/bin/env: 'python': No such file or directory`.
+  - `runtests.py` runs `tests/pymods/diff.py`, also through `env python`, when a comparison fails. Without `python`, the log shows the same message. Only the HTML diff is missing; the result of the test is not affected.
 
-# 9. Open points
+# 8. Open points
 
+- **AOCC: crash in `opernla_ylm`.** The `cray_aocc` build crashes in every calculation with `useylm 1`, PAW included (section 5.4). It is not known yet whether this is an AOCC bug, for example in the optimization of `m_opernla_ylm.F90`, or a problem in the source that only AOCC exposes. Until then, `cray_aocc` cannot be used for PAW.
+- **CCE: numerical differences.** With `cray_cray`, `paral:24` (final pressure of a cell relaxation) and `wannier90:00` (one matrix element) differ slightly more than their tolerances allow (section 5.4). Two ways to settle it: wider tolerances, or a look at the floating-point options of CCE.
 - **No linear algebra is only a warning.** When nothing works, configure prints `linear algebra does not work` and goes on (policy `warn`), so the error only appears when the executables are linked, after the whole build.
 - **`FCFLAGS_HINTS`** cannot override the vendor hints. `configure.ac` applies the user's value (`ABI_ENV_RECALL`, line 136) *before* computing the vendor hints (`ABI_FC_HINTS`, line 403), which overwrite it. With the AOCC changes of section 3.2, Lucia does not need it.
 - **Upstream report** of AOCC flang's preprocessor bug.
-- **FFTW variant at run time on Cray.** By default the loader picks the `x86_rome` build of `cray-fftw` (section 5.3). It would be cleaner to embed the module's library path in the binary, for example by linking with `CRAY_ADD_RPATH=yes` (optional part of T3).
+- **FFTW variant at run time on Cray.** By default, the loader picks the `x86_rome` build of `cray-fftw` (section 5.5). Linking with `CRAY_ADD_RPATH=yes` gives the Milan build with no `LD_LIBRARY_PATH`; this was tested with `cray_gnu`. What remains to decide is whether to only document it or to use it by default for the Cray builds.
 - **FFTW3 threads.** OpenMP is off in these builds, so ABINIT uses `fftw3`, not `fftw3-threads`, although `cray-fftw` provides the threaded libraries.
