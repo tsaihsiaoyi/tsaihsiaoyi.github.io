@@ -10,14 +10,15 @@ published: true
 
 # ABINIT on Lucia (six toolchains)
 
-> **Status, 2026-11-02.** ABINIT branch `cray_autodetect` builds on all six toolchains of Lucia, including BigDFT and AOCC, and passes every build check. The four Cray toolchains need **no configure argument** besides the library paths, and use FFTW3 from the `cray-fftw` module without any extra argument (section 5.3). Five later commits (section 3.4) let configure find an OpenBLAS + ScaLAPACK stack such as EasyBuild's `foss`, support LLVM Flang 20, and accept an HDF5 built with CMake. They were tested on a workstation with three EasyBuild 2025b toolchains, with the libraries taken from the fallbacks, from EasyBuild, or from both: none of the seven builds needs an argument besides the paths of the libraries built by the fallbacks (section 6). These commits have not been tested on Lucia yet. The test suite was not part of this work; each workstation build only ran four smoke tests.
+> **Status, 2026-11-03.** ABINIT branch `cray_autodetect` builds on all six toolchains of Lucia, including BigDFT and AOCC, and passes every build check. The four Cray toolchains need **no configure argument** besides the library paths, and use FFTW3 from the `cray-fftw` module without any extra argument (section 5.3). Five later commits (section 3.4) let configure find an OpenBLAS + ScaLAPACK stack such as EasyBuild's `foss`, support LLVM Flang 20, and accept an HDF5 built with CMake. They were tested on a workstation with three EasyBuild 2025b toolchains, with the libraries taken from the fallbacks, from EasyBuild, or from both: none of the seven builds needs an argument besides the paths of the libraries built by the fallbacks (section 6). On Lucia, the six toolchains were checked at `6cd90d43b2` with a configure smoke test (section 5.4): configure succeeds and `config.h` defines every required macro, and `eb_foss` no longer needs any argument either. The test suite was not part of this work; each workstation build only ran four smoke tests.
 
 Versions:
 
 - ABINIT 10.9.3 (development), branch `cray_autodetect`:
-  - Lucia (sections 4–5): commit `892bc37de3`, i.e. commits `0d793ca5da`, `41f1b841a2` and `892bc37de3` on top of `11cc7b0a57` of develop;
+  - Lucia, full builds (sections 4–5.3): commit `892bc37de3`, i.e. commits `0d793ca5da`, `41f1b841a2` and `892bc37de3` on top of `11cc7b0a57` of develop;
   - rebased on 2026-11-02 onto upstream develop (`a0d07ec4c5`), as `8e703f5ffa`, `7087cbaa14` and `15456e01e3`. The changes are the same, plus `libsci` in the `configure --help` text and in `doc/build/config-template.ac9`;
-  - workstation (section 6): five more commits, `7f3fa29eb3`, `77acf5425e`, `a84e3a012d`, `f7fb136e1c` and `6cd90d43b2` (section 3.4). All seven builds use `6cd90d43b2`.
+  - workstation (section 6): five more commits, `7f3fa29eb3`, `77acf5425e`, `a84e3a012d`, `f7fb136e1c` and `6cd90d43b2` (section 3.4). All seven builds use `6cd90d43b2`;
+  - Lucia, configure smoke test (section 5.4): also `6cd90d43b2`.
 - External libraries:
   - Lucia: abinit-fallbacks commit `6266085`, one static installation per toolchain (`$FB` below);
   - workstation: abinit-fallbacks `b6aa2ef` (`my_develop`), and EasyBuild modules.
@@ -131,9 +132,9 @@ Beyond that:
 |---|---|
 | `cray_cray`, `cray_gnu`, `cray_intel`, `cray_aocc` | **none** (FFTW3 included, see 5.3) |
 | `eb_intel` | none |
-| `eb_foss` | `--with-linalg-flavor=easybuild+elpa` at `892bc37de3`; none expected since `7f3fa29eb3` (section 3.4), not yet checked on Lucia |
+| `eb_foss` | none since `7f3fa29eb3` (section 5.4); `--with-linalg-flavor=easybuild+elpa` at `892bc37de3` |
 
-**`--with-linalg-flavor=easybuild+elpa` (eb_foss, at `892bc37de3`).** The automatic detection finds EasyBuild's OpenBLAS (through pkg-config) but no ScaLAPACK. Its MPI flavor `netlib` hard-codes `-lblacs -lblacsCinit -lblacsF77init`, which ScaLAPACK 2.2.2 does not have. The `easybuild` flavor uses `-lopenblas -lscalapack`. `+elpa` is needed because an explicit flavor no longer adds the ELPA check by itself (`sd_math_linalg.m4`). The same OpenBLAS + ScaLAPACK stack is found without argument since `7f3fa29eb3`: see `foss` in section 6.
+**`--with-linalg-flavor=easybuild+elpa` (eb_foss, at `892bc37de3`).** The automatic detection finds EasyBuild's OpenBLAS (through pkg-config) but no ScaLAPACK. Its MPI flavor `netlib` hard-codes `-lblacs -lblacsCinit -lblacsF77init`, which ScaLAPACK 2.2.2 does not have. The `easybuild` flavor uses `-lopenblas -lscalapack`. `+elpa` is needed because an explicit flavor no longer adds the ELPA check by itself (`sd_math_linalg.m4`). The same OpenBLAS + ScaLAPACK stack is found without argument since `7f3fa29eb3`: see section 5.4 for Lucia, and `foss` in section 6.
 
 ABINIT's configure takes only 20–60 s here, so each configure attempt was a short Slurm job, and its logs were archived before the next attempt.
 
@@ -159,7 +160,7 @@ Every build ends with a `check.sh` that verifies:
    - `abinit -b` lists `HAVE_FFTW3`;
    - `ldd abinit` resolves `libfftw3*` to a `cray-fftw` file.
 
-## 5.2 Results
+## 5.2 Full builds at `892bc37de3`
 
 All six builds pass every check (`RESULT: OK`). They used `make -j 64` on one debug node:
 
@@ -198,6 +199,43 @@ export LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH:$LD_LIBRARY_PATH
 ```
 
 `check.sh` prints both resolutions.
+
+## 5.4 Smoke test with the current branch (`6cd90d43b2`)
+
+On 2026-11-02 the six toolchains were checked again with the current branch, commit `6cd90d43b2` (the commits of section 3.4 included), against the same fallbacks (`6266085`). This test stops after configure:
+
+- configure runs with the command of section 4, with no other argument for any toolchain, `eb_foss` included;
+- checks 1–5 and 8 of section 5.1 are done on the configure results: no `.ac9` file, the compilers, MPI and MPI-IO, linear algebra with ScaLAPACK and ELPA, every library path in `$FB`, and FFTW from `cray-fftw` on Cray;
+- `config.h` defines `HAVE_MPI HAVE_MPI_IO HAVE_HDF5 HAVE_HDF5_MPI HAVE_NETCDF HAVE_NETCDF_MPI HAVE_NETCDF_FORTRAN HAVE_NETCDF_FORTRAN_MPI HAVE_LIBXC HAVE_LINALG_SCALAPACK HAVE_LINALG_ELPA HAVE_WANNIER90 HAVE_LIBPSML HAVE_XMLF90 HAVE_BIGDFT`, plus `HAVE_FFTW3` on Cray.
+
+There is no `make`, so the configures ran directly on a login node: the six in parallel took 81 s. All six pass:
+
+| Toolchain | Extra arguments | Linear algebra (configure) | FFT |
+|---|---|---|---|
+| `cray_cray`, `cray_gnu`, `cray_intel`, `cray_aocc` | none | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` |
+| `eb_intel` | none | `elpa+mkl` | DFTI |
+| `eb_foss` | **none** | `elpa+netlib+openblas` | FFTW3 (EasyBuild) |
+
+- **`eb_foss` without `--with-linalg-flavor`.** BLACS is first looked for as `-lblacs …`, as before, and then inside ScaLAPACK (`7f3fa29eb3`). The libraries are `-lelpa -lscalapack -lopenblas -lpthread`:
+
+  ```
+  checking for the serial linear algebra detection sequence... openblas atlas netlib openblas_pkg
+  checking for the MPI linear algebra detection sequence... netlib
+  checking for BLACS support in the specified libraries... no
+  checking for BLACS support in the specified libraries... yes
+  checking for the actual linear algebra flavor... elpa+netlib+openblas
+  ```
+
+- **`cray_aocc` with the LLVM commits.**
+  - LibSci is still tried first. The serial sequence is now `libsci openblas atlas netlib openblas_pkg`, with OpenBLAS added for LLVM by `a84e3a012d`.
+  - configure prints `adding the linear algebra Fortran flags to FCFLAGS for Flang` (`f7fb136e1c`).
+  - The optimization flags are `-O2 -march=native` instead of `-O2 -mtune=native -mcpu=native` (`77acf5425e`).
+- **Full builds at `7f3fa29eb3`.** Before the LLVM and HDF5 commits, full builds passed every check of section 5.1 for:
+  - `eb_intel` (`make` 9.3 min);
+  - `eb_foss`, already without argument (9.1 min);
+  - `cray_intel` (20.6 min).
+
+  The other three were spoiled by a `git pull` in the middle of the builds (section 7).
 
 # 6. Workstation tests: EasyBuild 2025b
 
@@ -275,6 +313,11 @@ Every build:
 
 - **Automake rebuild rules.** ABINIT's Makefiles have no "maintainer mode". If a file of `config/m4` is newer than `configure`, every `make` reruns aclocal/autoconf/automake *in the shared source tree*, and concurrent builds collide (`autom4te: cannot rename …`).
   - `aclocal` does not rewrite `aclocal.m4` when only the content of an included m4 file changes. So after `./autogen.sh`, touch `aclocal.m4`, `config.h.in`, `configure` and the `Makefile.in` files, in that order.
+- **No `git pull` while builds run.** A pull in the middle of the builds of `7f3fa29eb3` brought a newer `configure.ac`, and it disturbed three builds:
+  - in two of them, the running `make` re-ran `aclocal` and `autoconf` in the shared source tree, then `config.status --recheck`, i.e. configure again in the middle of the build. Their binaries mix objects compiled with two different `config.h`;
+  - a third build was in configure when `configure` was rewritten, and stopped with `syntax error near unexpected token`.
+
+  After a pull, regenerate the build system with `config/scripts/makemake`, because changes to `config/optim` only reach `configure` that way, not through the rebuild rules. Then rebuild from scratch.
 - **MPI launch inside a Slurm job** (Slurm 25.11, no default MPI plugin). Each library needs its own plugin, or the ranks start as separate singletons:
   - Cray MPICH: `srun --mpi=cray_shasta`;
   - Intel MPI: `srun --mpi=pmi2` with `I_MPI_PMI_LIBRARY=/usr/lib64/libpmi2.so`;
@@ -304,7 +347,7 @@ src/98_main/abinit -b      # check the CPP options
 
 # 9. Open points
 
-- **Lucia with the current branch.** Rebuild the six toolchains from the rebased branch with the commits of section 3.4. `eb_foss` should need no argument, and `cray_aocc` now gets `-march=native` instead of `-mtune=native -mcpu=native`.
+- **Full builds on Lucia with the current branch.** Section 5.4 only runs configure. Full builds with `make` and every check of section 5.1 were done at `892bc37de3` (six toolchains) and at `7f3fa29eb3` (`eb_intel`, `eb_foss`, `cray_intel`).
 - **No linear algebra is only a warning.** When nothing works, configure prints `linear algebra does not work` and goes on (policy `warn`), so the error only appears when the executables are linked, after the whole build.
 - **`FCFLAGS_HINTS`** cannot override the vendor hints. `configure.ac` applies the user's value (`ABI_ENV_RECALL`, line 136) *before* computing the vendor hints (`ABI_FC_HINTS`, line 403), which overwrite it. With the AOCC changes of section 3.2, Lucia no longer needs it.
 - **Upstream report** of AOCC flang's preprocessor bug.
