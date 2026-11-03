@@ -15,8 +15,8 @@ published: true
 > - Workstation, three EasyBuild 2025b toolchains, with the libraries from the fallbacks, from EasyBuild or from both: all seven builds succeed and pass four smoke tests (section 6).
 > - Lucia, six toolchains (four Cray PE, two EasyBuild 2025a), with the fallbacks at `b6aa2ef`: all six builds succeed and pass every check of `check.sh` (section 5.3).
 >   - Of the seven run-time smoke tests, all pass with GCC and with Intel, both on the Cray PE and with EasyBuild.
->   - CCE gives two small numerical differences beyond the tolerances.
->   - AOCC crashes in every calculation with `useylm 1`, PAW included (section 5.4).
+>   - CCE gives two small numerical differences beyond the tolerances, which come from its default floating-point optimizations (section 5.6).
+>   - AOCC crashes in every calculation with `useylm 1`, PAW included (section 5.4). The cause is a bug of the AOCC 4.1 optimizer, and a second bug of that optimizer changes an output (section 5.6).
 
 Versions:
 
@@ -147,7 +147,7 @@ No toolchain needs another argument:
 
 # 5. Results on Lucia
 
-On 2026-11-03, the six toolchains were built and tested with commit `6cd90d43b2` and the fallbacks at `b6aa2ef`: full builds (T1), a few run-time smoke tests (T2), and the FFTW library loaded at run time on Cray (T3). This is not a run of the test suite.
+On 2026-11-03, the six toolchains were built and tested with commit `6cd90d43b2` and the fallbacks at `b6aa2ef`: full builds (T1), a few run-time smoke tests (T2), and the FFTW library loaded at run time on Cray (T3). This is not a run of the test suite. Section 5.6 then traces the failures to their causes.
 
 ## 5.1 How the tests were run
 
@@ -327,7 +327,7 @@ Caught signal 11 (Segmentation fault: address not mapped to object at address (n
 - The four tests that pass use norm-conserving pseudopotentials with the default `useylm 0`, which goes through `nonlop_pl` instead.
 - So the AOCC build cannot run any PAW calculation, nor any calculation with `useylm 1`.
 - The compilation of `m_opernla_ylm.F90` prints no warning, and the crash is the same with the other FFTW build (section 5.5).
-- It has not been investigated further.
+- The cause is a bug of the AOCC optimizer (section 5.6).
 
 The `.fldiff` files, in `$ABI/_build_cray_aocc/`, only report the missing output: `tests_seq/wannier90_t00/t00.abo.fldiff`, `tests_mpi/paral_t24_MPI4/t24_MPI4.abo.fldiff`, `tests_mpi/mpiio_t22_MPI4/t22_MPI4.abo.fldiff`.
 
@@ -341,7 +341,7 @@ The `.fldiff` files, in `$ABI/_build_cray_aocc/`, only report the missing output
   The fldiff report is `tests_mpi/paral_t24_MPI4/t24_MPI4.abo.fldiff`.
 - `wannier90:00`: 5 lines of the matrix printed for Wannier90 differ. The largest relative difference is −0.007642 against −0.007654, 7.8e-4, above `tolrel` = 4e-4; the absolute difference, 1.4e-5, is within `tolabs`. The fldiff report is `tests_seq/wannier90_t00/t00.abo.fldiff`.
 
-The paths are in `$ABI/_build_cray_cray/`. With GCC and Intel, the same tests stay within these tolerances. The reference files are unchanged.
+The paths are in `$ABI/_build_cray_cray/`. With GCC and Intel, the same tests stay within these tolerances. The reference files are unchanged. Section 5.6 shows that these differences come from CCE's default floating-point optimizations.
 
 ## 5.5 FFTW on Cray: `cray-fftw`
 
@@ -376,6 +376,72 @@ T3 confirms this on the four Cray builds, and both variants give the results of 
 | `cray_aocc` | `x86_rome` | `x86_milan` | OK | **crash** (as in T2) |
 
 The `cray_gnu` build linked with `CRAY_ADD_RPATH=yes` embeds the module's library path in the binary. Without `LD_LIBRARY_PATH`, `ldd abinit` then resolves every `libfftw3*` to `x86_milan`, `v1:01` passes, and `check.sh` reports `RESULT: OK`.
+
+## 5.6 Diagnosis: compilers, not the source
+
+All the failures of section 5.4 come from the compilers: two optimizer bugs of AOCC 4.1, and the default floating-point optimizations of CCE. None of them points to an error in the ABINIT sources.
+
+**AOCC 1: absent optional argument read in `opernla_ylm`.** This bug causes the three crashes.
+
+- The faulting instruction is `movslq (%rax),%rax`, a 4-byte load through an address taken from the stack slot `0xb30(%rsp)`.
+  - The prologue of `opernla_ylm` saves 6 registers and reserves `0xa48` bytes, so argument *k* ≥ 7 is at `rsp+0xa80+8(k−7)`.
+  - `0xb30` is therefore argument 29, the optional `qdir`. It is absent in these calls, so its address is null.
+- In the source, `qdir` is only used inside `if ((signs==2).and.(choice_==33))`, as `igamma=qdir` then `idelgam=gamma(idelta,igamma)` (`m_opernla_ylm.F90:647` and `:2027`).
+  - `nonlop_ylm` requires `qdir` only in that case (`m_nonlop_ylm.F90:456-459`).
+  - Passing an absent optional argument to an optional dummy argument is valid Fortran.
+- In the code generated at `-O2`, the test `choice_==33` (`cmp $0x21`) only sets a flag (`setne`). The load of `qdir` and the product `3*qdir` for the index of `gamma` (`lea (%rax,%rax,2)`) come next, with no branch in between and before the loops: the optimizer has moved the load out of its condition.
+- Experiment: `m_opernla_ylm.F90` was compiled again, alone, at `-O0` or `-O1`, with the compile command of `make.out`. It was linked with all the other objects of the T1 build and run with `runtests.py` as in T2.
+  - `paral:24` and `mpiio:22` then give `succeeded`;
+  - `wannier90:00` runs to the end.
+
+**AOCC 2: wrong trip count in `write_Mmn`.** With that change, `wannier90:00` still fails, for another reason. Its values agree with GCC and Intel within 2e-6, but the first three rows of the overlap matrix printed by `write_Mmn` (`src/71_wannier/m_wannier_io.F90`) have four elements instead of three. The loop is:
+
+```fortran
+do jj=1,3
+  if(jj>num_bands(isppol))cycle
+  write(msg, '(a,2f11.6,a)') trim(msg),M_matrix(ii,jj,1,1,isppol),' , '
+end do
+```
+
+`num_bands` is 4 in this test, and at `-O2` AOCC runs `jj` from 1 to 4. A standalone program reproduces it:
+
+```fortran
+module m_w
+  implicit none
+contains
+  subroutine top(nb)
+    integer, intent(in) :: nb(:)
+    integer :: ii, jj
+    do ii = 1, 3
+      if (ii > nb(1)) cycle
+      do jj = 1, 3
+        if (jj > nb(1)) cycle
+        write(*,'(2(a,i0))') ' ii=', ii, ' jj=', jj
+      end do
+    end do
+  end subroutine top
+end module m_w
+program p
+  use m_w
+  implicit none
+  call top([4])
+end program p
+```
+
+- With AOCC 4.1 (`PrgEnv-aocc`, `ftn -O2 -march=native`), it prints `jj=1` to `jj=4` for each `ii`.
+- With AOCC at `-O1`, and with GCC at `-O1` and `-O2`, it prints `jj=1` to `jj=3`.
+- In `write_Mmn`, the internal file `msg` also appears in the output list of its own `write`, which the Fortran standard does not allow. That is not the cause: the program above has no internal write.
+- Any loop of this shape (a `cycle` on a bound larger than the trip count) may be miscompiled at `-O2`, so AOCC may give wrong results elsewhere, where no test looks.
+
+**CCE: floating-point optimizations.** A separate CCE build used the same configure command and, for the Fortran optimization, the flags of T1 plus `-h fp0` (strict IEEE conformance). This was set through `FCFLAGS_OPTIM` with `--with-optim-flavor=custom` (section 7), for this diagnosis only.
+
+- All seven tests of T2 pass. `paral:24` gives the values of the reference to the last printed digit: final pressure 1.4729 GPa, `acell` 6.6897213787, and the same total energies. The line of `wannier90:00` is the one of GCC.
+- The first value that differs between the two CCE builds is the PAW compensation charge at the end of the first SCF cycle: 0.223643631497841 with `-h fp0`, 0.223643631504618 with the default flags, a difference of 7e-12.
+  - The cell relaxation of `paral:24` amplifies that difference over its three steps.
+  - `wannier90:00` stops after two SCF iterations (`nstep 2`). Its wavefunctions are not converged, so its overlap matrix is sensitive to such differences.
+- CCE's default level is `-h fp2` (`crayftn(1)`). Above `-h fp1`, it also allows square roots and divisions to be rewritten with hardware reciprocal approximations (`approx`). `-h fp1`, which keeps them exact, was not tested.
+
+These differences are therefore allowed by CCE's default options. They are a bug neither of CCE nor of ABINIT.
 
 # 6. Workstation tests: EasyBuild 2025b
 
@@ -428,12 +494,26 @@ In every build, `abinit -b` lists `HAVE_MPI_IO HAVE_HDF5_MPI HAVE_NETCDF_MPI HAV
   - `makemake` runs `abisrc.py`, which starts with `#!/usr/bin/env python`. Without a `python` in `PATH`, `makemake` stops with `The abisrc.py script returned a non-zero exit status`, and `abisrc.stderr` contains `/usr/bin/env: 'python': No such file or directory`.
   - `runtests.py` runs `tests/pymods/diff.py`, also through `env python`, when a comparison fails. Without `python`, the log shows the same message. Only the HTML diff is missing; the result of the test is not affected.
 
+- **No `make -n` in a build tree.** GNU make remakes its makefiles even with `-n`.
+  - `make -n -B abinit` therefore really runs `make am--refresh`, because `-B` makes every file out of date, the Makefiles included. That runs aclocal, automake and autoconf in the shared source tree, then `config.status --recheck`, i.e. configure again.
+  - To get a compile or link command, read it in `make.out`: the builds of section 5.1 print full command lines.
+- **Optimization flags from the environment.** configure uses `FCFLAGS_OPTIM`, `CFLAGS_OPTIM` and `CXXFLAGS_OPTIM` only with `--with-optim-flavor=custom`.
+  - Without that option, it ignores them and does not say so.
+  - `--with-optim-flavor=yes` is rejected; the allowed values are `none`, `custom`, `safe`, `standard` and `aggressive`.
+  - The CCE build of section 5.6 sets all three variables: the Fortran flags of T1 plus `-h fp0`, and `-O2` for C and C++ as in T1.
+
 # 8. Open points
 
-- **AOCC: crash in `opernla_ylm`.** The `cray_aocc` build crashes in every calculation with `useylm 1`, PAW included (section 5.4). It is not known yet whether this is an AOCC bug, for example in the optimization of `m_opernla_ylm.F90`, or a problem in the source that only AOCC exposes. Until then, `cray_aocc` cannot be used for PAW.
-- **CCE: numerical differences.** With `cray_cray`, `paral:24` (final pressure of a cell relaxation) and `wannier90:00` (one matrix element) differ slightly more than their tolerances allow (section 5.4). Two ways to settle it: wider tolerances, or a look at the floating-point options of CCE.
+- **AOCC optimizer bugs** (section 5.6). Until they are fixed, `cray_aocc` builds need a workaround:
+  - compile the files concerned at `-O1`, as configure already does for `src/70_gw` with CCE (`fcflags_opt_70_gw`);
+  - or avoid the patterns in the source, for example by passing a defined `qdir` to `opernla_ylm`.
+
+  The loop bug may hit other loops: a wider run of the test suite with AOCC would show how many.
+- **CCE: tolerances or floating-point level.** `paral:24` and `wannier90:00` pass with `-h fp0` (section 5.6). There are two options:
+  - widen the tolerances of these two tests;
+  - or build with a stricter floating-point level for CCE. The cost of `-h fp0` or `-h fp1` in run time has not been measured.
 - **No linear algebra is only a warning.** When nothing works, configure prints `linear algebra does not work` and goes on (policy `warn`), so the error only appears when the executables are linked, after the whole build.
 - **`FCFLAGS_HINTS`** cannot override the vendor hints. `configure.ac` applies the user's value (`ABI_ENV_RECALL`, line 136) *before* computing the vendor hints (`ABI_FC_HINTS`, line 403), which overwrite it. With the AOCC changes of section 3.2, Lucia does not need it.
-- **Upstream report** of AOCC flang's preprocessor bug.
+- **Upstream reports to AMD**: the preprocessor bug of section 3.2 and the two optimizer bugs of section 5.6. The loop bug can be reported with the program of section 5.6; the `opernla_ylm` bug has no small reproducer yet.
 - **FFTW variant at run time on Cray.** By default, the loader picks the `x86_rome` build of `cray-fftw` (section 5.5). Linking with `CRAY_ADD_RPATH=yes` gives the Milan build with no `LD_LIBRARY_PATH`; this was tested with `cray_gnu`. What remains to decide is whether to only document it or to use it by default for the Cray builds.
 - **FFTW3 threads.** OpenMP is off in these builds, so ABINIT uses `fftw3`, not `fftw3-threads`, although `cray-fftw` provides the threaded libraries.
