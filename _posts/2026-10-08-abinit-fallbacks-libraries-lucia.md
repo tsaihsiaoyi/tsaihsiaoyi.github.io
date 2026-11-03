@@ -16,7 +16,7 @@ Versions:
 
 - abinit-fallbacks, fork [tsaihsiaoyi/abinit-fallbacks](https://github.com/tsaihsiaoyi/abinit-fallbacks):
   - Lucia (sections 1–7): built and checked at commit `6266085` (branch `bigdft_xc_fix`, three commits on top of `my_develop` at `3ddec17`), now merged into `my_develop`;
-  - `my_develop` has moved on since. In particular, commit `2a4a80a` switches to BigDFT abinit-1.7.1.34, which fixes problems 1 and 2 of section 5 upstream, and commits `ee852b4`…`b6aa2ef` use the packages already available in the build environment. These later commits have not been built on Lucia;
+  - `my_develop` has moved on since. In particular, commit `2a4a80a` switches to BigDFT abinit-1.7.1.34, which fixes problems 1 and 2 of section 5 upstream, and commits `21ca1b3`…`b6aa2ef` use the packages already available in the build environment and fix the problems found on the workstation (section 8.5). These later commits have not been built on Lucia;
   - workstation (section 8): `my_develop` at `b6aa2ef`.
 - Machines:
   - Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11;
@@ -205,8 +205,85 @@ Notes:
 - BigDFT is not built with LLVM Flang, which crashes on its source code (`LLVM Flang cannot compile BigDFT => disabling the BigDFT fallback`).
 - ABINIT built against each of these seven installations, and passed its smoke tests: see section 6 of the [ABINIT report](/post/abinit-fallbacks-lucia.html).
 
+## 8.3 Environments without a complete toolchain
+
+The same command, still with no configure argument, also works when only part of a toolchain is loaded. configure was run at `b6aa2ef` in each of the following environments, and `make install` in those marked OK (3 to 5 min each). The modules are those of the hierarchical EasyBuild tree, e.g. `module load GCC/14.3.0 OpenBLAS/0.3.30`.
+
+Compilers and linear algebra only:
+
+| Modules | Compilers | Linear algebra | Not built | `make install` |
+|---|---|---|---|---|
+| none (system GCC 13.3) | `gcc` / `gfortran` | internal LINALG | ELPA | – |
+| `GCC` | `gcc` / `gfortran` | internal LINALG | ELPA | OK |
+| `intel-compilers` | `icx` / `ifx` | internal LINALG | ELPA | OK |
+| `llvm-compilers` | `clang` / `flang` | internal LINALG | ELPA, BigDFT | OK |
+| `gompi` | `mpicc` / `mpif90` | internal LINALG | ELPA | OK |
+| `iimpi` | `mpiicx` / `mpiifx` | internal LINALG | ELPA | OK |
+| `lompi` | `mpicc` / `mpif90` (clang/flang) | internal LINALG | ELPA, BigDFT | OK |
+| `GCC` + `OpenBLAS` | `gcc` / `gfortran` | `openblas_pkg` | ELPA | OK |
+| `GCC` + `FlexiBLAS` | `gcc` / `gfortran` | `flexiblas` | ELPA | – |
+| `GCC` + `BLIS` or `AOCL-BLAS` | `gcc` / `gfortran` | internal LINALG | ELPA | – |
+| `GCC` + `imkl` | `gcc` / `gfortran` | `mkl` (`-lmkl_gf_lp64 -lmkl_sequential -lmkl_core`) | ELPA | – |
+| `intel-compilers` + `imkl` | `icx` / `ifx` | `mkl` (`-qmkl`) | ELPA | – |
+| `gompi` + `FlexiBLAS` | `mpicc` / `mpif90` | `flexiblas` | ELPA | OK |
+| `llvm-compilers` + `FlexiBLAS` | `clang` / `flang` | `flexiblas` | ELPA, BigDFT | – |
+| `nvhpc/26.9` | `nvc` / `nvfortran` | `netlib` (BLAS and LAPACK of NVHPC) | ELPA | – |
+
+A complete toolchain plus one library:
+
+| Modules | Taken from EasyBuild | Not built | `make install` |
+|---|---|---|---|
+| `foss` + `ELPA` | ELPA | – | – |
+| `intel` + `ELPA` | ELPA | – | – |
+| `lfoss` + `ELPA` | ELPA | BigDFT | – |
+| `foss` + `netCDF` | HDF5, netCDF | – | OK |
+| `lfoss` + `netCDF-Fortran` | HDF5, netCDF, netCDF-Fortran | BigDFT | – |
+
+Notes:
+
+- "Internal LINALG" is the BLAS/LAPACK of the LINALG fallback. It is built when no LAPACK is found, also with BLIS or AOCL-BLAS, which only provide BLAS.
+- ELPA needs MPI and ScaLAPACK: configure disables it without them (`MPI is not available` or `ScaLAPACK is not available => disabling the ELPA fallback`).
+- With only `llvm-compilers`, configure takes `clang`/`flang`, not the `gcc`/`gfortran` of the GCCcore module that LLVM depends on.
+- The `nvhpc` module sets `CC=nvc` and `FC=nvfortran`, and configure honours them: the build has no MPI, although the HPC-X `mpicc`/`mpif90` are in `PATH` (section 9).
+- In `foss` + `netCDF`, the netCDF module also loads HDF5, and netCDF-Fortran is built against both.
+
+## 8.4 Without pkg-config
+
+LibXC, HDF5, netCDF, netCDF-Fortran and ELPA are only looked for with pkg-config. Without it (tested with `PKG_CONFIG=no` and the `mix` modules of `foss` and `intel`), configure warns:
+
+```
+configure: WARNING: pkg-config not found: the fallbacks will be built even for
+                  the packages already available, except linear algebra
+```
+
+and builds all the fallbacks but LINALG. The linear algebra is still found from the library names only: `-lscalapack -lflexiblas` for `foss`, `-qmkl=cluster` for `intel`. On this workstation, pkg-config only came with the netCDF modules of `foss` before the system `pkgconf` was installed.
+
+## 8.5 Problems found by these tests
+
+All are fixed in `my_develop`:
+
+- **Internal LINALG fallback** (`21ca1b3`). It is installed in `linalg/abinit_6.10`, but the packages depending on it looked in `linalg/lapack-abinit_6.10`, because two generator scripts derived the version from `lapack-abinit_6.10` differently. AtomPAW then failed to link (`cannot find -llapack`) in every environment without an external linear algebra.
+- **MKL without `MKLROOT`** (`37da3e6`). With the Intel compilers, MKL was always tried first, and configure stopped (`MKLROOT is not set`) when only `intel-compilers` or `iimpi` was loaded.
+- **ELPA without ScaLAPACK** (`34f28ca`). ELPA was enabled as soon as MPI was available, also with the internal LINALG fallback or FlexiBLAS alone, neither of which provides ScaLAPACK.
+- **`--with-<pkg>-incs` and `--with-<pkg>-libs`** (`5bea799`). Specifying an external package did not work:
+  - LibXC: the check required the Fortran 90 interface, removed in LibXC 6, although ABINIT, AtomPAW and BigDFT only use the C interface;
+  - HDF5: a leftover default `enable_hdf5=yes` made every `--with-hdf5-*` stop with `inconsistent options for hdf5`;
+  - HDF5 and netCDF: the checks ignored the given flags and left `afb_hdf5_ok` empty, with which the netCDF-C fallback would have been configured with `--disable-netcdf4`.
+- **Packages already available** (`ee852b4`). They were always rebuilt. They are now looked for with pkg-config, which needs two precautions with environment modules:
+  - pkgconf drops the `-I`/`-L` flags of the directories listed in `CPATH` and `LIBRARY_PATH`, which modules set, but gfortran does not look for `.mod` files in `CPATH`: pkg-config is run with `PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 PKG_CONFIG_ALLOW_SYSTEM_LIBS=1`;
+  - the default search paths of the compilers are not used: they give empty include flags, with which AtomPAW's configure stops and BigDFT silently builds its bundled LibXC 7.1.2.
+- **Linear algebra from EasyBuild variables** (`d6deac6`). FlexiBLAS, OpenBLAS and ScaLAPACK were only found through the `EBROOT*` variables of EasyBuild. They are now looked for with pkg-config, then by library name. `scalapack.pc` requires `mpi.pc` and `blas.pc`, which usually don't exist, and pkgconf 1.8 then fails even on `--variable=libdir`, so only the library directory is read, with `--maximum-traverse-depth=1`.
+- **LLVM compilers alone** (`c2184a5`). configure picked `gcc`/`gfortran`, which come with the GCCcore module that LLVM depends on. flang is now looked for before gfortran, and then clang/clang++ are used for C/C++.
+- **AtomPAW with Flang** (`6d52f18`). AtomPAW reads substrings up to position 256 of a `CHARACTER(200)` line. gfortran and ifx accept it, Flang refuses it: patched.
+- **HDF5 with clang++** (`c2fab56`). HDF5's `config/linux-gnu` matches `clang++` with `*g++*` and greps `GCC` in `clang++ --version`, which matches the `GCCcore` install path twice: the resulting two-line `CXX_VERSION` breaks the Makefiles. Patched.
+- **BigDFT with Flang** (`c0f0661`). Flang 20 crashes (`not a typeless expr`) on BigDFT's allocations such as `f_malloc_ptr((/ 3, nat /),id='wfn%rxyz')`, an idiom used about 1200 times, so BigDFT is not built by default with LLVM Flang (`--enable-bigdft` still tries). The Flang of AOCC is not concerned.
+
 # 9. Open points
 
 - **Rebuild from the current `my_develop`** (BigDFT abinit-1.7.1.34 and the later build-system changes) on the six toolchains of Lucia.
 - **Fake ScaLAPACK in BigDFT** (fix 3 of section 5). BigDFT's configure could look for ScaLAPACK under other names, so that its stubs are never built when a real library is available.
 - **C compiler type of `mpiicx`.** configure reports `checking for compiler type of 'mpiicx'... gnu`, with no version. The oneAPI check only reads the first line of `mpiicx -V`, which is the banner of the Intel MPI wrapper (`mpiicx for the Intel(R) MPI Library 2021.16`), and the GNU check matches afterwards. The tricks use the Fortran compiler (`intel 2025.2`) and MKL is selected, so this had no effect on the builds of section 8.
+- **NVHPC.** The `nvhpc/26.9` module exports `CC=nvc` and `FC=nvfortran`, so configure builds without MPI even though the HPC-X wrappers are available. configure honours `CC`/`FC` set by the user, and cannot tell them from those set by a module. NVHPC was only configured, not built.
+- **BLAS-only libraries.** With `BLIS/2.0` or `AOCL-BLAS/5.1` alone, there is no LAPACK, and the internal LINALG fallback is built instead of using them for BLAS.
+- **BigDFT with LLVM Flang.** To check again with newer Flang versions, with `--enable-bigdft`.
+- **XMLF90 download.** Its first URL (GitLab) now serves a repackaged tarball, with the same 211 files but another MD5. configure warns (`xmlf90-1.6.3 tarball MD5 check failed`) and downloads it again from forge.abinit.org.
