@@ -30,16 +30,15 @@ Versions:
   - Lucia (Cenaero), debug nodes with 2 × AMD EPYC 7763 (Zen 3, AVX2, no AVX-512), RHEL 8, Slurm 25.11;
   - a workstation with an Intel Core Ultra 7 265 (20 cores), 30 GB of memory, Ubuntu 24.04.5.
 
-# 1. Goal and rules
+## 1. Goal and rules
 
 For each of the six compiler toolchains available on Lucia, build ABINIT against the libraries built with abinit-fallbacks, with the **smallest possible set of configure arguments**. Section 6 does the same on a workstation with EasyBuild toolchains, where part of the libraries can also come from EasyBuild modules.
 
 - On Lucia, only the **compiler, MPI and math library** come from cluster modules, plus `cray-fftw` on the Cray toolchains. HDF5, netCDF, LibXC, ELPA, Wannier90, XMLF90, libPSML and BigDFT come from the fallbacks, never from `cray-hdf5`, `cray-netcdf` or EasyBuild modules.
 - Everything runs in a **clean environment**: `env -i`, then `source /etc/profile` (only for the `module` command), then the module lines of the toolchain.
-- Every configure argument beyond the library paths must be justified by a failing attempt without it. Each attempt's `config.log` is kept.
-- On Lucia, heavy work runs as Slurm jobs on the debug partition.
+- Every configure argument beyond the library paths must be justified by a failing attempt without it.
 
-# 2. The six toolchains
+## 2. The six toolchains
 
 | Name | Modules | Compilers | MPI | Math library |
 |---|---|---|---|---|
@@ -61,7 +60,7 @@ module load cray-fftw/3.3.10.8   # Cray toolchains only
 
 `cray-fftw/3.3.10.8` is the only version installed. Because `craype-x86-milan` is loaded, the module selects the Milan build of FFTW.
 
-# 3. Changes to ABINIT
+## 3. Changes to ABINIT
 
 | Commit | Change | Section |
 |---|---|---|
@@ -74,7 +73,7 @@ module load cray-fftw/3.3.10.8   # Cray toolchains only
 | `f7fb136e1c` | Linear algebra Fortran flags in all directories with LLVM Flang | 3.4 |
 | `6cd90d43b2` | HDF5 high-level library of CMake builds | 3.4 |
 
-## 3.1 Cray Programming Environment
+### 3.1 Cray Programming Environment
 
 Commit `7087cbaa14` lets configure find everything a Cray PE provides:
 
@@ -90,7 +89,7 @@ Commit `7087cbaa14` lets configure find everything a Cray PE provides:
   - With other compilers (e.g. `FC=mpifort`), the `libsci_<PrgEnv>` and `libsci_<PrgEnv>_mpi` libraries are linked explicitly, but only when they match the compiler in use.
 - **BigDFT link order** (`sd_bigdft.m4`). `libyaml.a` is now passed as `-Wl,<path>/libyaml.a`. The Cray `ftn` driver moves plain file arguments in front of all `-l` options. That put `libyaml.a` *before* `libbigdft-1.a`, so with CCE every BigDFT link failed with `undefined reference to yaml_parser_initialize`.
 
-## 3.2 AOCC 4.1 (classic flang)
+### 3.2 AOCC 4.1 (classic flang)
 
 AOCC's `ftn --version` prints `AMD clang version 16.0.3 (CLANG: AOCC_4.1.0...)`. That matches ABINIT's LLVM-flang test, and AOCC flang is still treated as LLVM because it needs the LLVM settings. Commit `7087cbaa14` (`lang-fortran.m4`, `configure.ac`) adapts two of them:
 
@@ -107,11 +106,11 @@ Commit `8e703f5ffa` rewrites three places of ABINIT's own sources that classic f
 
 The preprocessor bug depends on the data: the same macros expand correctly in hundreds of other places, and in small test files.
 
-## 3.3 `PSolver` argument
+### 3.3 `PSolver` argument
 
 Commit `15456e01e3` fixes a real bug that only CCE detected. `m_mklocl_realspace.F90` called BigDFT's `PSolver` with the integer `0` where the interface expects a `type(xc_info)` (`ftn-1279`). The other compilers accepted it, so `PSolver` read an integer as an `xc_info` object. It now passes an object initialised with `xc_init(xc, 0, XC_ABINIT, 1)`.
 
-## 3.4 OpenBLAS + ScaLAPACK, LLVM Flang and CMake HDF5
+### 3.4 OpenBLAS + ScaLAPACK, LLVM Flang and CMake HDF5
 
 Five commits, each found with a failing build on the workstation (section 6):
 
@@ -122,9 +121,9 @@ Five commits, each found with a failing build on the workstation (section 6):
 - **ELPA modules with LLVM Flang** (`f7fb136e1c`, `configure.ac`). Like classic flang, LLVM Flang needs the module files used indirectly: `src/41_geometry/m_supercell.F90` failed with `Cannot parse module file for module 'elpa'`. The linear-algebra Fortran flags now go to every directory with any LLVM Fortran compiler, not only AOCC.
 - **HDF5 built with CMake** (`6cd90d43b2`, `sd_io_hdf5.m4`). `h5pcc -showconfig` prints `High-level library: ON` for an HDF5 built with CMake, as EasyBuild's is, while configure only accepted `yes`. Without `-lhdf5_hl`, a static netCDF built against that HDF5 (by the fallbacks) failed to link (`undefined reference to H5DSattach_scale`, …), and configure disabled netCDF. `ON` is now accepted, as for the shared-library check just below. The Fortran high-level library keeps its previous handling, since its name differs between CMake (`libhdf5_hl_fortran`) and autotools (`libhdf5hl_fortran`) builds.
 
-# 4. Configure arguments
+## 4. Configure arguments
 
-The same command for every toolchain of Lucia. It contains only the libraries to use, and no `--prefix` (ABINIT is built in place):
+The same command for every toolchain of Lucia:
 
 ```bash
 ../configure \
@@ -139,17 +138,11 @@ The same command for every toolchain of Lucia. It contains only the libraries to
   --with-bigdft=$FB/bigdft/default
 ```
 
-No toolchain needs another argument:
+## 5. Results on Lucia
 
-- the four Cray toolchains get LibSci through the craype wrappers (section 3.1), and FFTW3 from the `cray-fftw` module (section 5.5);
-- `eb_intel` gets MKL, with its DFTI FFT;
-- `eb_foss` gets OpenBLAS with ScaLAPACK (section 3.4), and EasyBuild's FFTW3 through pkg-config.
+The six toolchains were built and tested with commit `6cd90d43b2` and the fallbacks at `b6aa2ef`: full builds (T1), a few run-time smoke tests (T2), and the FFTW library loaded at run time on Cray (T3). This is not a run of the test suite. Section 5.6 then traces the failures to their causes.
 
-# 5. Results on Lucia
-
-On 2026-11-03, the six toolchains were built and tested with commit `6cd90d43b2` and the fallbacks at `b6aa2ef`: full builds (T1), a few run-time smoke tests (T2), and the FFTW library loaded at run time on Cray (T3). This is not a run of the test suite. Section 5.6 then traces the failures to their causes.
-
-## 5.1 How the tests were run
+### 5.1 How the tests were run
 
 The rules of section 1 apply: clean environment, no argument besides the library paths, heavy work in Slurm jobs on the debug partition.
 
@@ -242,7 +235,7 @@ With `--use-srun`, the serial tests also run with `srun -n 1`. A test counts as 
 
 A fifth build, `_build_cray_gnu_rpath`, is `cray_gnu` with `export CRAY_ADD_RPATH=yes` before configure. Its test job runs `v1:01` without `LD_LIBRARY_PATH`.
 
-## 5.2 What `check.sh` verifies
+### 5.2 What `check.sh` verifies
 
 Every build ends with a `check.sh` that verifies:
 
@@ -264,7 +257,7 @@ Every build ends with a `check.sh` that verifies:
 
 It also checks the points specific to each toolchain (section 5.3), and prints the linear algebra and FFT flavors and the `ldd` lines of both libraries.
 
-## 5.3 T1: full builds
+### 5.3 T1: full builds
 
 All six builds succeed, with no configure argument besides the library paths of section 4. `check.sh` reports `RESULT: OK` (checks 1–8) on every one:
 
@@ -296,7 +289,7 @@ The build time is the wall time of the job (configure, `make -j 64` and `check.s
 
 - **`eb_intel`**: configure picks the Intel MPI wrappers of the LLVM-based compilers (`mpiicx`/`mpiicpx`/`mpiifx`). ScaLAPACK and BLACS come from MKL.
 
-## 5.4 T2: smoke tests
+### 5.4 T2: smoke tests
 
 | Test | `cray_cray` | `cray_gnu` | `cray_intel` | `cray_aocc` | `eb_intel` | `eb_foss` |
 |---|---|---|---|---|---|---|
@@ -343,7 +336,7 @@ The `.fldiff` files, in `$ABI/_build_cray_aocc/`, only report the missing output
 
 The paths are in `$ABI/_build_cray_cray/`. With GCC and Intel, the same tests stay within these tolerances. The reference files are unchanged. Section 5.6 shows that these differences come from CCE's default floating-point optimizations.
 
-## 5.5 FFTW on Cray: `cray-fftw`
+### 5.5 FFTW on Cray: `cray-fftw`
 
 Without the module, configure's FFTW3 test fails (`cannot find -lfftw3_mpi`) and ABINIT falls back to its internal Goedecker FFT. Loading `cray-fftw` is enough, with no change to ABINIT and no configure argument:
 
@@ -377,7 +370,7 @@ T3 confirms this on the four Cray builds, and both variants give the results of 
 
 The `cray_gnu` build linked with `CRAY_ADD_RPATH=yes` embeds the module's library path in the binary. Without `LD_LIBRARY_PATH`, `ldd abinit` then resolves every `libfftw3*` to `x86_milan`, `v1:01` passes, and `check.sh` reports `RESULT: OK`.
 
-## 5.6 Diagnosis: compilers, not the source
+### 5.6 Diagnosis: compilers, not the source
 
 All the failures of section 5.4 come from the compilers: two optimizer bugs of AOCC 4.1, and the default floating-point optimizations of CCE. None of them points to an error in the ABINIT sources.
 
@@ -443,7 +436,7 @@ end program p
 
 These differences are therefore allowed by CCE's default options. They are a bug neither of CCE nor of ABINIT.
 
-# 6. Workstation tests: EasyBuild 2025b
+## 6. Workstation tests: EasyBuild 2025b
 
 Three EasyBuild 2025b toolchains:
 
@@ -476,7 +469,7 @@ In every build, `abinit -b` lists `HAVE_MPI_IO HAVE_HDF5_MPI HAVE_NETCDF_MPI HAV
 - **BLAS through OpenBLAS or FlexiBLAS.** With GNU and LLVM, BLACS and ScaLAPACK come from `-lscalapack` (section 3.4). In `fb` and `partial`, ABINIT links `-lelpa -lscalapack -lopenblas`, so its BLAS calls go to OpenBLAS; FlexiBLAS is only loaded by EasyBuild's ScaLAPACK. In `mix`, the pkg-config flags of EasyBuild's ELPA (`-lelpa -lscalapack -lflexiblas`) come before `-lopenblas`, so the BLAS calls go through FlexiBLAS, whose default backend is the same OpenBLAS.
 - **One HDF5 for the whole I/O stack.** In `foss` partial, the fallbacks build netCDF against EasyBuild's HDF5, and ABINIT links that static netCDF with EasyBuild's shared HDF5 (`6cd90d43b2`).
 
-# 7. Pitfalls worth knowing
+## 7. Pitfalls worth knowing
 
 - **Automake rebuild rules.** ABINIT's Makefiles have no "maintainer mode". If a file of `config/m4` is newer than `configure`, every `make` reruns aclocal/autoconf/automake *in the shared source tree*, and concurrent builds collide (`autom4te: cannot rename …`).
   - `aclocal` does not rewrite `aclocal.m4` when only the content of an included m4 file changes. So after `./autogen.sh` or `makemake`, touch `aclocal.m4`, `config.h.in`, `configure` and the `Makefile.in` files, in that order.
@@ -502,7 +495,7 @@ In every build, `abinit -b` lists `HAVE_MPI_IO HAVE_HDF5_MPI HAVE_NETCDF_MPI HAV
   - `--with-optim-flavor=yes` is rejected; the allowed values are `none`, `custom`, `safe`, `standard` and `aggressive`.
   - The CCE build of section 5.6 sets all three variables: the Fortran flags of T1 plus `-h fp0`, and `-O2` for C and C++ as in T1.
 
-# 8. Open points
+## 8. Open points
 
 - **AOCC optimizer bugs** (section 5.6). Until they are fixed, `cray_aocc` builds need a workaround:
   - compile the files concerned at `-O1`, as configure already does for `src/70_gw` with CCE (`fcflags_opt_70_gw`);
