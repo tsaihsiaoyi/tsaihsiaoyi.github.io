@@ -261,14 +261,14 @@ It also checks the points specific to each toolchain (section 5.3), and prints t
 
 All six builds succeed, with no configure argument besides the library paths of section 4. `check.sh` reports `RESULT: OK` (checks 1–8) on every one:
 
-| Toolchain | Compilers found by configure | FC optimization | Build time | Linear algebra | FFT | `ldd abinit`: linear algebra, FFT |
-|---|---|---|---|---|---|---|
-| `cray_cray` | `cc`/`CC`/`ftn`, CCE 18.0.0 | `-O2 -h nofortran_ptr_alias -h nofortran_ptr_overlap -Oipa0` | 32:47 | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_cray(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
-| `cray_gnu` | `cc`/`CC`/`ftn`, GCC 13.3.1 | `-O2 -march=native` | 8:45 | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_gnu(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
-| `cray_intel` | `cc`/`CC`/`ftn`, ifort 2021.7 + icx 2022.2 | `-O3` | 21:14 | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_intel(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
-| `cray_aocc` | `cc`/`CC`/`ftn`, AOCC 4.1 | `-O2 -march=native` | 27:18 | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_aocc(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
-| `eb_intel` | `mpiicx`/`mpiicpx`/`mpiifx`, 2025.1.1 | `-O3` | 10:20 | `elpa+mkl` | DFTI | MKL 2025.1: `libmkl_intel_lp64`, `_sequential`, `_core`, `_scalapack_lp64`, `_blacs_intelmpi_lp64`, `_cdft_core` |
-| `eb_foss` | `mpicc`/`mpic++`/`mpifort`, GCC 14.2.0 | `-O2 -march=native` | 10:06 | `elpa+netlib+openblas` | FFTW3 (EasyBuild) | `libopenblas.so.0` (OpenBLAS 0.3.29), `libscalapack.so.2.2` (ScaLAPACK 2.2.2), `libflexiblas.so.3`, `libfftw3(f).so.3` (FFTW 3.3.10) |
+| Toolchain | Compilers found by configure | FC optimization | Linear algebra | FFT | `ldd abinit`: linear algebra, FFT |
+|---|---|---|---|---|---|
+| `cray_cray` | `cc`/`CC`/`ftn`, CCE 18.0.0 | `-O2 -h nofortran_ptr_alias -h nofortran_ptr_overlap -Oipa0` | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_cray(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
+| `cray_gnu` | `cc`/`CC`/`ftn`, GCC 13.3.1 | `-O2 -march=native` | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_gnu(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
+| `cray_intel` | `cc`/`CC`/`ftn`, ifort 2021.7 + icx 2022.2 | `-O3` | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_intel(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
+| `cray_aocc` | `cc`/`CC`/`ftn`, AOCC 4.1 | `-O2 -march=native` | `elpa+libsci` | FFTW3 (cray-fftw), + `HAVE_FFTW3_MPI` | `libsci_aocc(_mpi).so.6`, `libfftw3*.so.mpi31.3` |
+| `eb_intel` | `mpiicx`/`mpiicpx`/`mpiifx`, 2025.1.1 | `-O3` | `elpa+mkl` | DFTI | MKL 2025.1: `libmkl_intel_lp64`, `_sequential`, `_core`, `_scalapack_lp64`, `_blacs_intelmpi_lp64`, `_cdft_core` |
+| `eb_foss` | `mpicc`/`mpic++`/`mpifort`, GCC 14.2.0 | `-O2 -march=native` | `elpa+netlib+openblas` | FFTW3 (EasyBuild) | `libopenblas.so.0` (OpenBLAS 0.3.29), `libscalapack.so.2.2` (ScaLAPACK 2.2.2), `libflexiblas.so.3`, `libfftw3(f).so.3` (FFTW 3.3.10) |
 
 The build time is the wall time of the job (configure, `make -j 64` and `check.sh`) on a debug node. On Cray, LibSci and `libfftw3*` come from `/opt/cray/pe/lib64`; section 5.5 shows which FFTW build that gives at run time. In every build, `ldd abinit` lists no library of the fallbacks, which are static, and no `/usr/lib64/libopenblas*`.
 
